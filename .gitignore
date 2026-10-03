@@ -1,0 +1,12 @@
+node_modules/
+.next/
+data/
+backups/
+*.sqlite*
+*.db*
+*.tsbuildinfo
+playwright-report/
+test-results/
+.env*
+next-env.d.ts
+.vercel

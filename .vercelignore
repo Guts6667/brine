@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+data
+backups
+test-results
+playwright-report
+.env*
+*.sqlite*
+*.db*
+*.tsbuildinfo
+.vercel
+e2e
+tests
