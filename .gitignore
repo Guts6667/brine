@@ -10,3 +10,6 @@ test-results/
 .env*
 next-env.d.ts
 .vercel
+
+.agents/
+skills-lock.json

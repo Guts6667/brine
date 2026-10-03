@@ -12,3 +12,6 @@ playwright-report
 .vercel
 e2e
 tests
+
+.agents/
+skills-lock.json
