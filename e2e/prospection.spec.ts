@@ -3,8 +3,10 @@ import type { Backup } from '../lib/types';
 
 const questions = [
   'Cette entreprise correspond-elle à ma cible ?',
-  'Ai-je repéré un problème concret que je peux améliorer ?',
-  'Ai-je un moyen professionnel de la contacter ?',
+  'Ai-je identifié un problème concret que je peux améliorer ?',
+  'Y a-t-il une raison pertinente de la contacter maintenant ?',
+  'Cette entreprise possède-t-elle des preuves de son savoir-faire à mieux valoriser ?',
+  'Ai-je un moyen professionnel de joindre le bon interlocuteur ?',
 ];
 
 async function backup(request: APIRequestContext): Promise<Backup> {
@@ -24,8 +26,14 @@ async function createCompany(page: Page, name: string): Promise<string> {
   return new URL(page.url()).pathname.split('/').at(-1)!;
 }
 
-async function answer(page: Page, index: number, value: 'Oui' | 'Non' | 'À vérifier') {
+async function answer(page: Page, index: number, value: string) {
   await page.getByRole('group', { name: questions[index], exact: true }).getByRole('radio', { name: value, exact: true }).check();
+}
+
+async function saveQualification(page: Page) {
+  const form = page.getByTestId('qualification-form');
+  await form.getByRole('button', { name: 'Enregistrer la qualification', exact: true }).click();
+  await expect(form.getByRole('status').filter({ hasText: /Qualification enregistrée|Brouillon enregistré/ })).toBeVisible();
 }
 
 async function saveCompany(page: Page) {
@@ -62,21 +70,28 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   const id = await createCompany(page, name);
   let saved = (await backup(request)).companies.find(company => company.id === id)!;
   expect(saved).toMatchObject({ city: '', business: '', targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', stage: 'À étudier' });
-  await expect(page.getByText('À vérifier', { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId('qualification-summary')).toContainText('Non évalué');
+  for (const question of questions) await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();
 
-  for (let index = 0; index < questions.length; index++) await answer(page, index, 'Oui');
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
-  await page.getByRole('button', { name: 'Enregistrer la fiche', exact: true }).click();
-  await expect(page.getByText('Décrivez le problème concret pour répondre Oui.', { exact: true })).toBeVisible();
-  for (const question of questions) await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'Oui', exact: true })).toBeChecked();
-  await expect(page.getByLabel('Email professionnel', { exact: true })).toHaveValue('bonjour@atelier-du-lez.example');
-  saved = (await backup(request)).companies.find(company => company.id === id)!;
-  expect(saved.problemFound).toBe('unknown');
-
-  await page.getByLabel('Le constat concret', { exact: true }).fill('Le formulaire de devis ne permet pas d’envoyer la demande.');
-  await page.getByLabel('Date d’observation', { exact: true }).fill(dateInParis());
   await saveCompany(page);
-  await expect(page.getByText('Bonne piste', { exact: true }).first()).toBeVisible();
+  await expect.poll(async () => (await backup(request)).companies.find(company => company.id === id)!.contact.email).toBe('bonjour@atelier-du-lez.example');
+  await answer(page, 0, 'Exactement');
+  await answer(page, 1, 'Un problème concret vérifié');
+  await answer(page, 2, 'Aucun déclencheur repéré après recherche');
+  await answer(page, 3, 'Aucune trouvée après vérification');
+  await answer(page, 4, 'Canal professionnel générique de l’entreprise');
+  await page.getByRole('checkbox', { name: 'Je confirme cette évaluation par rapport à la cible actuelle.', exact: true }).check();
+  await saveQualification(page);
+  await expect(page.getByTestId('qualification-summary')).toContainText('25 points confirmés');
+  await expect(page.getByTestId('qualification-summary')).toContainText('4 critères sur 5 renseignés');
+  await expect(page.getByRole('group', { name: questions[1], exact: true }).getByRole('radio', { name: 'Un problème concret vérifié', exact: true })).toBeChecked();
+
+  await page.getByLabel('Le problème concret observé', { exact: true }).fill('Le formulaire de devis ne permet pas d’envoyer la demande.');
+  await page.getByLabel('Date d’observation du problème', { exact: true }).fill(dateInParis());
+  await saveQualification(page);
+  await expect(page.getByTestId('qualification-summary')).toContainText('40/100');
+  await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
     window.scrollTo({ top: 0, behavior: 'instant' });
@@ -84,18 +99,23 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await page.screenshot({ path: 'test-results/preview-fiche.png', fullPage: true, caret: 'initial' });
 
   await answer(page, 0, 'Non');
-  await saveCompany(page);
-  await expect(page.getByText('Hors cible', { exact: true }).first()).toBeVisible();
-  await answer(page, 0, 'Oui');
+  await saveQualification(page);
+  await expect(page.getByTestId('qualification-summary')).toContainText('Hors cible');
+  await answer(page, 0, 'Exactement');
+  await saveQualification(page);
+  await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
   await page.getByLabel('Email professionnel', { exact: true }).fill('');
   await saveCompany(page);
-  await expect(page.getByText('Contact à trouver', { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId('qualification-summary')).toContainText('35 points confirmés');
+  await expect(page.getByTestId('qualification-summary')).toContainText('4 critères sur 5 renseignés');
+  await expect(page.getByTestId('qualification-summary').getByText('À vérifier', { exact: true }).first()).toBeVisible();
   saved = (await backup(request)).companies.find(company => company.id === id)!;
-  expect(saved.contactAvailable).not.toBe('yes');
+  expect(saved.qualification!.answers.access.answer).toBe('generic');
+  expect(saved.contact.email).toBe('');
 
-  await answer(page, 2, 'Oui');
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
   await saveCompany(page);
+  await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
   await planAction(page, 'Appeler pour présenter le constat', dateInParis(-1));
   await page.goto('/');
   await expect(page.getByText(name, { exact: true })).toBeVisible();
@@ -240,6 +260,34 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Restauration terminée.' })).toBeVisible();
   expect((await backup(request)).companies.find(company => company.id === id)!.oppositionActive).toBe(true);
+
+  // Older complete JSON files remain restorable and are exported in the new format.
+  const legacyBackup = {
+    ...prior,
+    schemaVersion: 1,
+    settings: { targetCity: prior.settings.targetCity, targetBusiness: prior.settings.targetBusiness },
+    companies: prior.companies.map(({ qualification: _qualification, ...company }) => company),
+  };
+  await page.getByLabel('Fichier de sauvegarde JSON', { exact: true }).setInputFiles({
+    name: 'brine-sauvegarde-v1.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(legacyBackup)),
+  });
+  await page.getByRole('button', { name: 'Vérifier le fichier', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Aperçu du fichier', exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Je confirme le remplacement des données par cette sauvegarde.', exact: true }).check();
+  await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restauration terminée.' })).toBeVisible();
+  const normalized = await backup(request);
+  expect(normalized.schemaVersion).toBe(2);
+  expect(normalized.companies).toHaveLength(prior.companies.length);
+  expect(normalized.aiTests).toEqual(prior.aiTests);
+  for (const activity of prior.activities) expect(normalized.activities).toContainEqual(activity);
+  for (const company of normalized.companies) {
+    expect(company.qualification!.version).toBe(1);
+    expect(company.qualification!.answers.fit.answer).toBe('unknown');
+  }
+  expect(normalized.companies.find(company => company.id === id)!.oppositionActive).toBe(true);
 
   await page.goto(`/prospects/${id}`);
   await expect(page.getByText('Ne plus contacter', { exact: true }).first()).toBeVisible();

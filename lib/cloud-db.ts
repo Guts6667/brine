@@ -6,10 +6,12 @@ import {
   normalizeText, normalizedDomain, parisToday, settingsSchema,
 } from './domain';
 import { cloudMigrations } from './cloud-schema';
+import { afterExchangeInputSchema, canQualifyOpportunity, captureTarget, emptyQualification, observationsSchema, qualificationDataSchema, qualificationInputSchema, targetSnapshotSchema } from './qualification';
+import type { QualificationData, TargetSnapshot } from './qualification-types';
 import type { Activity, AiTest, AiTestInput, Backup, Company, CompanyDetails, CompanyInput, Contact, NextAction, Settings } from './types';
 
-type CompanyRow = Omit<Company, 'contact' | 'nextAction' | 'archived' | 'oppositionActive'> & { archived: number; oppositionActive: number };
-const companyColumns = ['id', 'name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage', 'archived', 'oppositionActive', 'oppositionDate', 'oppositionNote', 'createdAt', 'updatedAt'];
+type CompanyRow = Omit<Company, 'contact' | 'nextAction' | 'archived' | 'oppositionActive' | 'qualification'> & { archived: number; oppositionActive: number; qualification: string; commercialStage: string };
+const companyColumns = ['id', 'name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage', 'archived', 'oppositionActive', 'oppositionDate', 'oppositionNote', 'createdAt', 'updatedAt', 'qualification', 'commercialStage'];
 const contactColumns = ['name', 'role', 'email', 'phone', 'formUrl', 'profileUrl'] as const;
 const aiColumns = ['id', 'companyId', 'panel', 'period', 'tool', 'interface', 'mode', 'model', 'questions', 'validResponses', 'recommendations', 'citations', 'notes', 'proofUrl', 'createdAt'];
 const quoted = (columns: readonly string[]) => columns.map((key) => `"${key}"`).join(', ');
@@ -26,7 +28,7 @@ const touchStatement = (id: string) => statement('UPDATE companies SET updatedAt
 const aiStatement = (test: AiTest) => statement(`INSERT INTO ai_tests (${quoted(aiColumns)}) VALUES (${placeholders(aiColumns)})`, aiColumns.map((key) => test[key as keyof AiTest]));
 const aiFromRow = (row: Row): AiTest => ({ ...row, validResponses: row.validResponses === null ? null : Number(row.validResponses), recommendations: row.recommendations === null ? null : Number(row.recommendations), citations: row.citations === null ? null : Number(row.citations) }) as unknown as AiTest;
 function companyStatements(company: Company): InStatement[] {
-  const values = companyColumns.map((key) => key === 'archived' ? Number(company.archived) : key === 'oppositionActive' ? Number(company.oppositionActive) : company[key as keyof Company]) as InValue[];
+  const values = companyColumns.map((key) => key === 'qualification' ? JSON.stringify(company.qualification || emptyQualification()) : key === 'commercialStage' ? (company.stage === 'Opportunité qualifiée' ? company.stage : '') : key === 'stage' && company.stage === 'Opportunité qualifiée' ? 'En échange' : key === 'archived' ? Number(company.archived) : key === 'oppositionActive' ? Number(company.oppositionActive) : company[key as keyof Company]) as InValue[];
   return [
     statement(`INSERT INTO companies (${quoted(companyColumns)}) VALUES (${placeholders(companyColumns)})`, values),
     statement(`INSERT INTO contacts (companyId, ${quoted(contactColumns)}) VALUES (?, ${placeholders(contactColumns)})`, [company.id, ...contactColumns.map((key) => company.contact[key])]),
@@ -106,8 +108,10 @@ export class AsyncCloudStore {
       return [String(companyId), action as unknown as NextAction] as const;
     }));
     return results[0].rows.map((row) => {
-      const company = row as unknown as CompanyRow;
-      return { ...company, archived: Number(company.archived) === 1, oppositionActive: Number(company.oppositionActive) === 1, contact: contacts.get(company.id) || emptyContact(), nextAction: actions.get(company.id) || null };
+      const { qualification: json, commercialStage, ...company } = row as unknown as CompanyRow;
+      const decoded = JSON.parse(json);
+      const qualification = Object.keys(decoded).length ? qualificationDataSchema.parse(decoded) : emptyQualification();
+      return { ...company, stage: commercialStage === 'Opportunité qualifiée' ? 'Opportunité qualifiée' : company.stage, qualification, archived: Number(company.archived) === 1, oppositionActive: Number(company.oppositionActive) === 1, contact: contacts.get(company.id) || emptyContact(), nextAction: actions.get(company.id) || null };
     });
   }
 
@@ -123,7 +127,7 @@ export class AsyncCloudStore {
   async createCompany(input: CompanyInput): Promise<Company> {
     const parsed = companyInputSchema.parse(input);
     const timestamp = now();
-    const company: Company = { ...parsed, id: randomUUID(), targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', observation: '', proofUrl: '', observedOn: '', trigger: '', stage: 'À étudier', archived: false, oppositionActive: false, oppositionDate: '', oppositionNote: '', contact: emptyContact(), nextAction: null, createdAt: timestamp, updatedAt: timestamp };
+    const company: Company = { ...parsed, id: randomUUID(), targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', observation: '', proofUrl: '', observedOn: '', trigger: '', stage: 'À étudier', archived: false, oppositionActive: false, oppositionDate: '', oppositionNote: '', contact: emptyContact(), nextAction: null, createdAt: timestamp, updatedAt: timestamp, qualification: emptyQualification() };
     return this.transact('write', async (tx) => {
       await tx.batch([...companyStatements(company), logStatement(company.id, 'system', 'Entreprise ajoutée.')]);
       return this.requireCompany(tx, company.id);
@@ -135,11 +139,15 @@ export class AsyncCloudStore {
       const before = await this.requireCompany(tx, id);
       const normalized = { ...input, contactAvailable: before.contactAvailable === 'yes' && hasProfessionalContact(before.contact) && input.contactAvailable === 'yes' && !hasProfessionalContact(input.contact) ? 'unknown' : input.contactAvailable };
       const parsed = companyDetailsSchema.parse(normalized);
+      const enteringQualified = before.stage !== 'Opportunité qualifiée' && parsed.stage === 'Opportunité qualifiée';
+      if (enteringQualified && !canQualifyOpportunity({ ...before, ...parsed })) throw new Error('Les conditions après échange doivent être confirmées avant de qualifier cette opportunité.');
       const columns = ['name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage'] as const;
       const contactChanged = contactColumns.some((key) => before.contact[key] !== parsed.contact[key]);
       if (!contactChanged && !columns.some((key) => before[key] !== parsed[key])) return before;
+      const qualification = before.qualification || emptyQualification();
+      if (enteringQualified) qualification.afterExchange.qualifiedAt = now();
       const statements = [
-        statement(`UPDATE companies SET ${columns.map((key) => `"${key}" = ?`).join(', ')}, updatedAt = ? WHERE id = ?`, [...columns.map((key) => parsed[key]), now(), id]),
+        statement(`UPDATE companies SET ${columns.map((key) => `"${key}" = ?`).join(', ')}, commercialStage = ?, qualification = ?, updatedAt = ? WHERE id = ?`, [...columns.map((key) => key === 'stage' && parsed.stage === 'Opportunité qualifiée' ? 'En échange' : parsed[key]), parsed.stage === 'Opportunité qualifiée' ? parsed.stage : '', JSON.stringify(qualification), now(), id]),
         statement(`UPDATE contacts SET ${contactColumns.map((key) => `"${key}" = ?`).join(', ')} WHERE companyId = ?`, [...contactColumns.map((key) => parsed.contact[key]), id]),
       ];
       if (before.stage !== parsed.stage) statements.push(logStatement(id, 'system', `Étape modifiée : ${before.stage} → ${parsed.stage}.`));
@@ -147,6 +155,56 @@ export class AsyncCloudStore {
       await tx.batch(statements);
       return this.requireCompany(tx, id);
     });
+  }
+
+  qualifyOpportunity(id: string): Promise<Company> {
+    return this.transact('write', async (tx) => {
+      const company = await this.requireCompany(tx, id);
+      if (!canQualifyOpportunity(company)) throw new Error('Les conditions après échange doivent être confirmées avant de qualifier cette opportunité.');
+      const qualification = company.qualification || emptyQualification();
+      if (company.stage === 'Opportunité qualifiée' && qualification.afterExchange.qualifiedAt) return company;
+      qualification.afterExchange.qualifiedAt = now();
+      await tx.batch([statement('UPDATE companies SET stage = ?, commercialStage = ?, qualification = ?, updatedAt = ? WHERE id = ?', ['En échange', 'Opportunité qualifiée', JSON.stringify(qualification), now(), id]), logStatement(id, 'system', `Étape modifiée explicitement : ${company.stage} → Opportunité qualifiée.`)]);
+      return this.requireCompany(tx, id);
+    });
+  }
+
+  private saveQualificationData(id: string, update: (tx: Transaction, company: Company) => QualificationData | Promise<QualificationData>, message: string): Promise<Company> {
+    return this.transact('write', async (tx) => {
+      const company = await this.requireCompany(tx, id);
+      const previous = company.qualification || emptyQualification();
+      const qualification = qualificationDataSchema.parse(await update(tx, company));
+      if (JSON.stringify(previous) === JSON.stringify(qualification)) return company;
+      await tx.batch([statement('UPDATE companies SET qualification = ?, updatedAt = ? WHERE id = ?', [JSON.stringify(qualification), now(), id]), logStatement(id, 'system', message)]);
+      return this.requireCompany(tx, id);
+    });
+  }
+
+  async saveQualification(id: string, input: unknown, confirmTarget: boolean, expectedTarget?: TargetSnapshot): Promise<Company> {
+    if (typeof confirmTarget !== 'boolean') throw new Error('Confirmez explicitement la cible utilisée.');
+    const parsed = qualificationInputSchema.parse(input);
+    const expected = confirmTarget && expectedTarget !== undefined ? targetSnapshotSchema.parse(expectedTarget) : undefined;
+    return this.saveQualificationData(id, async (tx, company) => {
+      const current = company.qualification || emptyQualification();
+      const target = confirmTarget ? captureTarget(await this.settings(tx)) : current.targetSnapshot;
+      if (confirmTarget && (!expected || !target || (Object.keys(target) as (keyof TargetSnapshot)[]).some(key => expected[key] !== target[key]))) {
+        throw new Error('La cible a changé depuis l’ouverture de la fiche. Actualisez la page avant de confirmer cette évaluation.');
+      }
+      return { ...current, answers: parsed.answers, targetSnapshot: target };
+    }, 'Qualification de prospection enregistrée.');
+  }
+
+  async saveObservations(id: string, input: unknown): Promise<Company> {
+    const parsed = observationsSchema.parse(input);
+    return this.saveQualificationData(id, (_tx, company) => ({ ...(company.qualification || emptyQualification()), observations: parsed }), 'Constats manuels du site mis à jour.');
+  }
+
+  async saveAfterExchange(id: string, input: unknown): Promise<Company> {
+    const parsed = afterExchangeInputSchema.parse(input);
+    return this.saveQualificationData(id, (_tx, company) => {
+      const current = company.qualification || emptyQualification();
+      return { ...current, afterExchange: { ...parsed, qualifiedAt: current.afterExchange.qualifiedAt } };
+    }, 'Informations après échange mises à jour.');
   }
 
   async findDuplicates(input: CompanyInput, excludeId?: string): Promise<{ id: string; name: string }[]> {
@@ -242,18 +300,21 @@ export class AsyncCloudStore {
   }
 
   private async settings(tx: Transaction): Promise<Settings> {
-    return (await tx.execute('SELECT targetCity, targetBusiness FROM settings WHERE id = 1')).rows[0] as unknown as Settings;
+    return (await tx.execute('SELECT targetCity, targetBusiness, targetCompanyType, targetOffer, targetExclusions FROM settings WHERE id = 1')).rows[0] as unknown as Settings;
   }
   getSettings(): Promise<Settings> { return this.transact('read', (tx) => this.settings(tx)); }
   async saveSettings(input: Settings): Promise<void> {
-    const settings = settingsSchema.parse(input);
-    return this.transact('write', async (tx) => { await tx.execute(statement('UPDATE settings SET targetCity = ?, targetBusiness = ? WHERE id = 1', [settings.targetCity, settings.targetBusiness])); });
+    return this.transact('write', async (tx) => {
+      const current = await this.settings(tx);
+      const settings = settingsSchema.parse({ ...input, targetCompanyType: input.targetCompanyType ?? current.targetCompanyType, targetOffer: input.targetOffer ?? current.targetOffer, targetExclusions: input.targetExclusions ?? current.targetExclusions });
+      await tx.execute(statement('UPDATE settings SET targetCity = ?, targetBusiness = ?, targetCompanyType = ?, targetOffer = ?, targetExclusions = ? WHERE id = 1', [settings.targetCity, settings.targetBusiness, settings.targetCompanyType, settings.targetOffer, settings.targetExclusions]));
+    });
   }
 
   private async snapshot(tx: Transaction): Promise<Backup> {
     const companies = await this.companies(tx);
-    const results = await tx.batch(['SELECT * FROM activities ORDER BY createdAt, rowid', 'SELECT * FROM ai_tests ORDER BY createdAt, rowid', 'SELECT targetCity, targetBusiness FROM settings WHERE id = 1']);
-    return { schemaVersion: 1, exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
+    const results = await tx.batch(['SELECT * FROM activities ORDER BY createdAt, rowid', 'SELECT * FROM ai_tests ORDER BY createdAt, rowid', 'SELECT targetCity, targetBusiness, targetCompanyType, targetOffer, targetExclusions FROM settings WHERE id = 1']);
+    return { schemaVersion: 2, exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
   }
   exportBackup(): Promise<Backup> { return this.transact('read', (tx) => this.snapshot(tx)); }
 
@@ -295,7 +356,7 @@ export class AsyncCloudStore {
       await tx.execute(statement('INSERT INTO brine_restore_backups(id, createdAt, payload) VALUES (?, ?, ?)', [recoveryId, now(), JSON.stringify(existing)]));
       // Explicit deletion also protects restoration if a database is configured without FK cascades.
       await tx.batch(['DELETE FROM next_actions', 'DELETE FROM contacts', 'DELETE FROM activities', 'DELETE FROM ai_tests', 'DELETE FROM companies']);
-      const statements = [...incoming.companies.flatMap(companyStatements), ...incoming.activities.map(activityStatement), ...incoming.aiTests.map(aiStatement), statement('UPDATE settings SET targetCity = ?, targetBusiness = ? WHERE id = 1', [incoming.settings.targetCity, incoming.settings.targetBusiness])];
+      const statements = [...incoming.companies.flatMap(companyStatements), ...incoming.activities.map(activityStatement), ...incoming.aiTests.map(aiStatement), statement('UPDATE settings SET targetCity = ?, targetBusiness = ?, targetCompanyType = ?, targetOffer = ?, targetExclusions = ? WHERE id = 1', [incoming.settings.targetCity, incoming.settings.targetBusiness, incoming.settings.targetCompanyType || '', incoming.settings.targetOffer || '', incoming.settings.targetExclusions || ''])];
       for (let offset = 0; offset < statements.length; offset += 100) await tx.batch(statements.slice(offset, offset + 100));
       return { backupPath: `cloud:${recoveryId}`, preservedOppositions: preservedIds.size };
     });

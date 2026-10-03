@@ -1,6 +1,7 @@
 'use server';
 import { randomUUID } from 'node:crypto';
-import { companyInputSchema } from '@/lib/domain';
+import { companyInputSchema, parisToday } from '@/lib/domain';
+import { qualificationInputSchema, observationsSchema, afterExchangeInputSchema, targetSnapshotSchema, evaluateQualification, evaluateAfterExchange } from '@/lib/qualification';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -8,7 +9,7 @@ import { ZodError } from 'zod';
 import { getStore, isCloudStorage } from '@/lib/db';
 import { isAllowedRequest } from '@/lib/security';
 import { requireAuthenticated } from '@/lib/auth';
-import type { ActionState, Answer, CompanyDetails, Stage } from '@/lib/types';
+import type { ActionState, CompanyDetails, Stage } from '@/lib/types';
 
 const str = (data: FormData, name: string) => String(data.get(name) ?? '').trim();
 async function authorize() {
@@ -44,14 +45,15 @@ export async function createCompanyAction(_: ActionState, data: FormData): Promi
 export async function saveCompanyAction(id: string, _: ActionState, data: FormData): Promise<ActionState> {
   try {
     await authorize();
+    const store=getStore(),before=await store.getCompany(id);
+    if(!before) throw new Error('Entreprise introuvable.');
     const contact = { name: str(data,'contact.name'), role: str(data,'contact.role'), email: str(data,'contact.email'), phone: str(data,'contact.phone'), formUrl: str(data,'contact.formUrl'), profileUrl: str(data,'contact.profileUrl') };
     const input: CompanyDetails = {
       name:str(data,'name'), website:str(data,'website'), city:str(data,'city'), business:str(data,'business'),
-      targetFit:str(data,'targetFit') as Answer, problemFound:str(data,'problemFound') as Answer, contactAvailable:str(data,'contactAvailable') as Answer,
-      observation:str(data,'observation'), proofUrl:str(data,'proofUrl'), observedOn:str(data,'observedOn'), trigger:str(data,'trigger'),
+      targetFit:before.targetFit, problemFound:before.problemFound, contactAvailable:before.contactAvailable,
+      observation:before.observation, proofUrl:before.proofUrl, observedOn:before.observedOn, trigger:before.trigger,
       stage:str(data,'stage') as Stage, contact,
     };
-    const store=getStore(),before=await store.getCompany(id);
     const canonical=companyInputSchema.parse(input);
     if(before && (['name','website','city'] as const).some(key=>before[key]!==canonical[key])) {
       const duplicates=await store.findDuplicates(canonical,id);
@@ -60,6 +62,39 @@ export async function saveCompanyAction(id: string, _: ActionState, data: FormDa
     await store.updateCompany(id,input); refresh(id);
     return {ok:true,message:'Fiche enregistrée. La qualification a été recalculée.'};
   } catch(error) { return failure(error); }
+}
+function parsePayload(data:FormData):unknown {
+  const payload=str(data,'payload');
+  if(payload.length>128*1024) throw new Error('Les informations dépassent la taille autorisée.');
+  try { return JSON.parse(payload); } catch { throw new Error('Les informations du formulaire sont invalides. Rechargez la fiche.'); }
+}
+export async function saveQualificationAction(id:string,_:ActionState,data:FormData):Promise<ActionState> {
+  try {
+    await authorize();
+    const store=getStore(),input=qualificationInputSchema.parse(parsePayload(data));
+    const confirmTarget=str(data,'confirmTarget')==='yes';
+    const expectedTarget=confirmTarget?targetSnapshotSchema.parse(parseJsonField(data,'expectedTarget')):undefined;
+    const company=await store.saveQualification(id,input,confirmTarget,expectedTarget);
+    const evaluation=evaluateQualification(company,await store.getSettings(),parisToday()); refresh(id);
+    return {ok:true,message:evaluation.complete?`Qualification enregistrée : ${evaluation.score}/100 · ${evaluation.decision}.`:`Brouillon enregistré : ${evaluation.confirmedPoints} points confirmés · ${evaluation.completedCount} critères sur 5 complets.`};
+  } catch(error) { return failure(error); }
+}
+function parseJsonField(data:FormData,name:string):unknown {
+  const value=str(data,name);
+  if(value.length>10000) throw new Error('Les informations du formulaire dépassent la taille autorisée.');
+  try {return JSON.parse(value);} catch {throw new Error('Le formulaire a changé. Rechargez la fiche avant de réessayer.');}
+}
+export async function saveObservationsAction(id:string,_:ActionState,data:FormData):Promise<ActionState> {
+  try { await authorize(); await getStore().saveObservations(id,observationsSchema.parse(parsePayload(data))); refresh(id); return {ok:true,message:'Observations enregistrées. Confirmez séparément les réponses aux cinq critères.'}; }
+  catch(error) { return failure(error); }
+}
+export async function saveAfterExchangeAction(id:string,_:ActionState,data:FormData):Promise<ActionState> {
+  try { await authorize(); const company=await getStore().saveAfterExchange(id,afterExchangeInputSchema.parse(parsePayload(data))); refresh(id); return {ok:true,message:`Échange enregistré : ${evaluateAfterExchange(company).label}. L’étape commerciale reste à votre choix.`}; }
+  catch(error) { return failure(error); }
+}
+export async function qualifyOpportunityAction(id:string,_:ActionState,_data:FormData):Promise<ActionState> {
+  try { await authorize(); await getStore().qualifyOpportunity(id); refresh(id); return {ok:true,message:'Entreprise passée à Opportunité qualifiée. La décision est conservée dans l’historique.'}; }
+  catch(error) { return failure(error); }
 }
 export async function saveAction(id: string, _: ActionState, data: FormData): Promise<ActionState> {
   try {
@@ -106,7 +141,7 @@ export async function oppositionAction(id: string, active: boolean, _: ActionSta
   } catch(error) { return failure(error); }
 }
 export async function saveSettingsAction(_: ActionState, data: FormData): Promise<ActionState> {
-  try { await authorize(); await getStore().saveSettings({targetCity:str(data,'targetCity'),targetBusiness:str(data,'targetBusiness')}); refresh(); return {ok:true,message:'Cible enregistrée. Les fiches existantes restent inchangées.'}; }
+  try { await authorize(); await getStore().saveSettings({targetCity:str(data,'targetCity'),targetBusiness:str(data,'targetBusiness'),targetCompanyType:str(data,'targetCompanyType'),targetOffer:str(data,'targetOffer'),targetExclusions:str(data,'targetExclusions')}); refresh(); return {ok:true,message:'Cible enregistrée. Les évaluations d’une autre cible demandent une revalidation explicite.'}; }
   catch(error) { return failure(error); }
 }
 export async function previewBackupAction(_: ActionState, data: FormData): Promise<ActionState & { preview?: Awaited<ReturnType<ReturnType<typeof getStore>['previewBackup']>>; json?: string; previewKey?:string }> {

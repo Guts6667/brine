@@ -1,5 +1,6 @@
+import type { QualificationData } from './qualification-types';
 export type Answer = 'yes' | 'no' | 'unknown';
-export const stages = ['À étudier', 'À contacter', 'En échange', 'Proposition envoyée', 'Gagné', 'Perdu'] as const;
+export const stages = ['À étudier', 'À contacter', 'En échange', 'Opportunité qualifiée', 'Proposition envoyée', 'Gagné', 'Perdu'] as const;
 export type Stage = typeof stages[number];
 export interface Contact { name: string; role: string; email: string; phone: string; formUrl: string; profileUrl: string }
 export interface NextAction { id: string; text: string; date: string; createdAt: string }
@@ -10,9 +11,10 @@ export interface Company {
   stage: Stage; archived: boolean;
   oppositionActive: boolean; oppositionDate: string; oppositionNote: string;
   contact: Contact; nextAction: NextAction | null; createdAt: string; updatedAt: string;
+  qualification?: QualificationData;
 }
 export type CompanyInput = Pick<Company, 'name' | 'website' | 'city' | 'business'>;
-export type CompanyDetails = Omit<Company, 'id' | 'nextAction' | 'createdAt' | 'updatedAt' | 'oppositionActive' | 'oppositionDate' | 'oppositionNote' | 'archived'>;
+export type CompanyDetails = Omit<Company, 'id' | 'nextAction' | 'createdAt' | 'updatedAt' | 'oppositionActive' | 'oppositionDate' | 'oppositionNote' | 'archived' | 'qualification'>;
 export interface Activity {
   id: string; companyId: string; kind: 'note' | 'exchange' | 'action_done' | 'action_rescheduled' | 'system';
   type: string; date: string; text: string; createdAt: string;
@@ -24,6 +26,6 @@ export interface AiTest {
   notes: string; proofUrl: string; createdAt: string;
 }
 export type AiTestInput = Omit<AiTest, 'id' | 'companyId' | 'createdAt'>;
-export interface Settings { targetCity: string; targetBusiness: string }
-export interface Backup { schemaVersion: 1; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
+export interface Settings { targetCity: string; targetBusiness: string; targetCompanyType?: string; targetOffer?: string; targetExclusions?: string }
+export interface Backup { schemaVersion: 1 | 2; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
 export interface ActionState { ok?: boolean; error?: string; fields?: Record<string, string>; duplicates?: { id: string; name: string }[]; message?: string }

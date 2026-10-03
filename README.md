@@ -22,9 +22,17 @@ Les commandes locales écoutent sur `127.0.0.1`. La version hébergée fonctionn
 
 ## Usage et données
 
-**Aujourd’hui** rassemble les actions en retard, celles du jour et les bonnes pistes sans action. **Prospects** permet d’ajouter une entreprise avec son nom seul. Sur sa fiche, compléter les trois questions, un constat et un canal professionnel, puis utiliser **Prévoir la suite**. Terminer une action la conserve dans l’historique. Les étapes commerciales restent manuelles.
+**Aujourd’hui** rassemble les actions en retard, celles du jour et les prospects prêts pour un premier contact, sans date planifiée, classés par score. **Prospects** permet d’ajouter une entreprise avec son nom seul. Sur sa fiche, enregistrer le contact et les observations, confirmer les cinq critères, puis utiliser **Prévoir la suite**. Terminer une action la conserve dans l’historique. Les étapes commerciales restent manuelles.
 
-La cible proposée (rénovation intérieure, Montpellier) se modifie dans **Données et préférences**. Elle ne remplit pas les fiches sans validation. Les relevés IA sont facultatifs, saisis manuellement et séparés de la qualification.
+La cible (activité, zone, type d’entreprise, offre et exclusions) se modifie dans **Données et préférences**. Son exemple initial ne remplit pas les fiches sans validation. Chaque évaluation conserve la cible confirmée ; un changement demande une revalidation avant toute suggestion de premier contact. Les relevés IA sont facultatifs, saisis manuellement et séparés de la qualification.
+
+Le barème fixe `pickles-v1` additionne l’adéquation (20/10/0), le problème concret (30/15/0), le déclencheur (20/10/0), les références (15/5/0) et l’accès professionnel (15/5/0). « À vérifier » est inconnu. Une réponse positive sans les justificatifs requis reste un brouillon enregistrable. Seuls cinq critères complets donnent un score sur 100 : priorité haute dès 70, intermédiaire dès 50, basse en dessous. Cette convention ne prédit pas un achat et ne prouve ni budget ni besoin reconnu.
+
+**Ce que j’ai observé** documente neuf observations facultatives (site ancien, mobile, action principale, prestations, contact, avis Google, activité récente, site satisfaisant et inactivité vérifiée), avec notes, sources et dates. La taille reste séparée. Les observations reliées manuellement restent consultables depuis **Pourquoi ce score ?**. Elles n’ajoutent aucun point. Reprendre des notes ne change aucune réponse. Deux formulations d’un même défaut ne suffisent pas pour 30 points ; l’app vérifie les justificatifs présents, pas leur véracité.
+
+Un changement récent doit dater de 0 à 90 jours avant sa vérification. Un déclencheur ancien demande une nouvelle vérification sans retrait silencieux de points. Une opposition, une cible non validée, un problème non établi ou un contact absent bloque les suggestions, quel que soit le score. Les étapes et l’archivage restent manuels.
+
+Le volet replié **Après l’échange** distingue besoin, calendrier, budget, décision, capacité à avancer, solution et prochaine étape acceptée. Il ne crée aucun second score. La transition explicite **Passer à Opportunité qualifiée** exige un besoin reconnu, une solution pertinente, un chemin de décision identifié et une étape acceptée, sans opposition ni blocage confirmé. Un budget inconnu reste à vérifier. Une contradiction ultérieure demande une réévaluation et conserve l’historique.
 
 SQLite conserve les données dans `data/brine.sqlite`, avec les fichiers associés `-wal` et `-shm` pendant l’utilisation. Si une installation possède déjà `data/pickles.sqlite` et aucune base `data/brine.sqlite`, Brine continue d’utiliser cette base existante. Les migrations versionnées se trouvent dans `migrations/` et s’appliquent au démarrage. Le dossier des données est exclu de Git et de `public/`. Pour choisir une autre base :
 
@@ -38,7 +46,7 @@ L’archivage est réversible. **Ne plus contacter** est distinct de l’étape 
 
 ## Sauvegarde et restauration
 
-Dans **Données et préférences**, télécharger la sauvegarde JSON complète : entreprises, contact principal, notes et échanges, historique, prochaines actions, oppositions, relevés IA et cible. Le fichier comporte une version de schéma.
+Dans **Données et préférences**, télécharger la sauvegarde JSON complète : entreprises, contact principal, notes et échanges, historique, prochaines actions, oppositions, relevés IA et cible. Le fichier utilise le schéma v2, incluant qualification, observations, cible utilisée et après-échange. Les sauvegardes v1 restent importables : les anciennes réponses sont conservées sans déduction vers les nouveaux critères, qui démarrent à « À vérifier ».
 
 Pour restaurer, choisir un JSON de 5 Mo maximum, vérifier l’aperçu des quantités, puis confirmer le remplacement. Tous les éléments et leurs relations sont validés avant l’écriture. Le remplacement est atomique. Une sauvegarde de l’état précédent est créée dans `data/backups/` en local (ou `backups/` à côté de la base choisie). En ligne, cette copie privée est enregistrée dans Turso au sein de la même transaction et se télécharge depuis **Données et préférences**.
 
@@ -65,7 +73,7 @@ Pour mettre à jour une version déjà configurée :
 npm run typecheck
 npm test
 npm run build
-npx vercel --prod
+git push origin main
 ```
 
 Le mode local continue d’utiliser SQLite tant que les variables Turso ne sont pas définies. Les données d’une base locale et celles de la version en ligne ne se synchronisent pas automatiquement : l’import initial et les transferts ultérieurs passent par une sauvegarde JSON complète.

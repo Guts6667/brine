@@ -39,11 +39,11 @@ test('name-only company persists empty facts and default settings after reopenin
     assert.equal(company.contactAvailable, 'unknown');
     assert.equal(company.stage, 'À étudier');
     assert.equal(company.nextAction, null);
-    assert.deepEqual(f.store.getSettings(), { targetCity: 'Montpellier', targetBusiness: 'Rénovation intérieure' });
+    assert.deepEqual(f.store.getSettings(), { targetCity: 'Montpellier', targetBusiness: 'Rénovation intérieure', targetCompanyType: '', targetOffer: '', targetExclusions: '' });
     f.store.saveSettings({ targetCity: 'Lyon', targetBusiness: 'Menuiserie' });
     f.reopen();
     assert.deepEqual(f.store.getCompany(company.id), company);
-    assert.deepEqual(f.store.getSettings(), { targetCity: 'Lyon', targetBusiness: 'Menuiserie' });
+    assert.deepEqual(f.store.getSettings(), { targetCity: 'Lyon', targetBusiness: 'Menuiserie', targetCompanyType: '', targetOffer: '', targetExclusions: '' });
     assert.equal(statSync(f.path).mode & 0o777, 0o600);
   } finally { f.dispose(); }
 });
@@ -209,7 +209,7 @@ test('restoration preserves matching domain/name-city oppositions and absent com
     f.store.addActivity(first.id, { kind: 'note', type: '', date: '', text: 'Historique à préserver.' });
     f.store.addAiTest(first.id, sampleTest());
     f.store.setOpposition(first.id, true, 'Ne plus relancer');
-    const empty: Backup = { schemaVersion: 1, exportedAt: new Date().toISOString(), companies: [], activities: [], aiTests: [], settings: f.store.getSettings() };
+    const empty: Backup = { schemaVersion: 2, exportedAt: new Date().toISOString(), companies: [], activities: [], aiTests: [], settings: f.store.getSettings() };
     f.store.restoreBackup(empty, true);
     assert.equal(f.store.getCompany(first.id)!.archived, true);
     assert.equal(f.store.getCompany(first.id)!.oppositionActive, true);

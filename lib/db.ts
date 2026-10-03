@@ -7,12 +7,14 @@ import {
   companyInputSchema, hasProfessionalContact, nextActionInputSchema,
   normalizeText, normalizedDomain, parisToday, settingsSchema,
 } from './domain';
+import { afterExchangeInputSchema, canQualifyOpportunity, captureTarget, emptyQualification, observationsSchema, qualificationDataSchema, qualificationInputSchema, targetSnapshotSchema } from './qualification';
+import type { QualificationData, TargetSnapshot } from './qualification-types';
 import type { Activity, AiTest, AiTestInput, Backup, Company, CompanyDetails, CompanyInput, Contact, NextAction, Settings } from './types';
 import { createClient } from '@libsql/client';
 import { AsyncCloudStore } from './cloud-db';
 
-type CompanyRow = Omit<Company, 'contact' | 'nextAction' | 'archived' | 'oppositionActive'> & { archived: number; oppositionActive: number };
-const companyColumns = ['id', 'name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage', 'archived', 'oppositionActive', 'oppositionDate', 'oppositionNote', 'createdAt', 'updatedAt'];
+type CompanyRow = Omit<Company, 'contact' | 'nextAction' | 'archived' | 'oppositionActive' | 'qualification'> & { archived: number; oppositionActive: number; qualification: string; commercialStage: string };
+const companyColumns = ['id', 'name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage', 'archived', 'oppositionActive', 'oppositionDate', 'oppositionNote', 'createdAt', 'updatedAt', 'qualification', 'commercialStage'];
 const contactColumns = ['name', 'role', 'email', 'phone', 'formUrl', 'profileUrl'] as const;
 const aiColumns = ['id', 'companyId', 'panel', 'period', 'tool', 'interface', 'mode', 'model', 'questions', 'validResponses', 'recommendations', 'citations', 'notes', 'proofUrl', 'createdAt'];
 const quoted = (columns: readonly string[]) => columns.map((key) => `"${key}"`).join(', ');
@@ -74,7 +76,10 @@ export class Store {
   private mapCompany(row: CompanyRow): Company {
     const contact = this.db.prepare('SELECT name, role, email, phone, formUrl, profileUrl FROM contacts WHERE companyId = ?').get(row.id) as Contact | undefined;
     const nextAction = this.db.prepare('SELECT id, text, date, createdAt FROM next_actions WHERE companyId = ?').get(row.id) as NextAction | undefined;
-    return { ...row, archived: Boolean(row.archived), oppositionActive: Boolean(row.oppositionActive), contact: contact || emptyContact(), nextAction: nextAction || null };
+    const { qualification: json, commercialStage, ...base } = row;
+    const decoded = JSON.parse(json);
+    const qualification = Object.keys(decoded).length ? qualificationDataSchema.parse(decoded) : emptyQualification();
+    return { ...base, stage: commercialStage === 'Opportunité qualifiée' ? 'Opportunité qualifiée' : base.stage, qualification, archived: Boolean(row.archived), oppositionActive: Boolean(row.oppositionActive), contact: contact || emptyContact(), nextAction: nextAction || null };
   }
 
   listCompanies(): Company[] {
@@ -95,7 +100,7 @@ export class Store {
   private touch(id: string) { this.db.prepare('UPDATE companies SET updatedAt = ? WHERE id = ?').run(now(), id); }
 
   private insertCompany(company: Company) {
-    const values = companyColumns.map((key) => key === 'archived' ? Number(company.archived) : key === 'oppositionActive' ? Number(company.oppositionActive) : company[key as keyof Company]);
+    const values = companyColumns.map((key) => key === 'qualification' ? JSON.stringify(company.qualification || emptyQualification()) : key === 'commercialStage' ? (company.stage === 'Opportunité qualifiée' ? company.stage : '') : key === 'stage' && company.stage === 'Opportunité qualifiée' ? 'En échange' : key === 'archived' ? Number(company.archived) : key === 'oppositionActive' ? Number(company.oppositionActive) : company[key as keyof Company]);
     this.db.prepare(`INSERT INTO companies (${quoted(companyColumns)}) VALUES (${placeholders(companyColumns)})`).run(...values);
     this.db.prepare(`INSERT INTO contacts (companyId, ${quoted(contactColumns)}) VALUES (?, ${placeholders(contactColumns)})`).run(company.id, ...contactColumns.map((key) => company.contact[key]));
     if (company.nextAction) {
@@ -119,29 +124,84 @@ export class Store {
       ...parsed, id: randomUUID(), targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown',
       observation: '', proofUrl: '', observedOn: '', trigger: '', stage: 'À étudier', archived: false,
       oppositionActive: false, oppositionDate: '', oppositionNote: '', contact: emptyContact(), nextAction: null,
-      createdAt: timestamp, updatedAt: timestamp,
+      createdAt: timestamp, updatedAt: timestamp, qualification: emptyQualification(),
     };
     this.db.transaction(() => { this.insertCompany(company); this.log(company.id, 'system', 'Entreprise ajoutée.'); })();
     return this.requireCompany(company.id);
   }
 
   updateCompany(id: string, input: CompanyDetails): Company {
-    const before = this.requireCompany(id);
-    // Removing the last professional channel must never leave an affirmative answer behind.
-    const normalizedInput = { ...input, contactAvailable: before.contactAvailable === 'yes' && hasProfessionalContact(before.contact) && input.contactAvailable === 'yes' && !hasProfessionalContact(input.contact) ? 'unknown' : input.contactAvailable };
-    const parsed = companyDetailsSchema.parse(normalizedInput);
-    this.db.transaction(() => {
+    return this.db.transaction(() => {
+      const before = this.requireCompany(id);
+      // Removing the last professional channel cannot leave the legacy affirmative answer behind.
+      const normalizedInput = { ...input, contactAvailable: before.contactAvailable === 'yes' && hasProfessionalContact(before.contact) && input.contactAvailable === 'yes' && !hasProfessionalContact(input.contact) ? 'unknown' : input.contactAvailable };
+      const parsed = companyDetailsSchema.parse(normalizedInput);
+      const enteringQualified = before.stage !== 'Opportunité qualifiée' && parsed.stage === 'Opportunité qualifiée';
+      if (enteringQualified && !canQualifyOpportunity({ ...before, ...parsed })) throw new Error('Les conditions après échange doivent être confirmées avant de qualifier cette opportunité.');
       const columns = ['name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage'] as const;
-      const changed = columns.some((key) => before[key] !== parsed[key]) || contactColumns.some((key) => before.contact[key] !== parsed.contact[key]);
-      if (!changed) return;
-      this.db.prepare(`UPDATE companies SET ${columns.map((key) => `"${key}" = ?`).join(', ')}, updatedAt = ? WHERE id = ?`).run(...columns.map((key) => parsed[key]), now(), id);
+      const contactChanged = contactColumns.some((key) => before.contact[key] !== parsed.contact[key]);
+      const changed = columns.some((key) => before[key] !== parsed[key]) || contactChanged;
+      if (!changed) return before;
+      const qualification = before.qualification || emptyQualification();
+      if (enteringQualified) qualification.afterExchange.qualifiedAt = now();
+      this.db.prepare(`UPDATE companies SET ${columns.map((key) => `"${key}" = ?`).join(', ')}, commercialStage = ?, qualification = ?, updatedAt = ? WHERE id = ?`).run(...columns.map((key) => key === 'stage' && parsed.stage === 'Opportunité qualifiée' ? 'En échange' : parsed[key]), parsed.stage === 'Opportunité qualifiée' ? parsed.stage : '', JSON.stringify(qualification), now(), id);
       this.db.prepare(`UPDATE contacts SET ${contactColumns.map((key) => `"${key}" = ?`).join(', ')} WHERE companyId = ?`).run(...contactColumns.map((key) => parsed.contact[key]), id);
       if (before.stage !== parsed.stage) this.log(id, 'system', `Étape modifiée : ${before.stage} → ${parsed.stage}.`);
-      if (columns.filter((key) => key !== 'stage').some((key) => before[key] !== parsed[key]) || contactColumns.some((key) => before.contact[key] !== parsed.contact[key])) {
-        this.log(id, 'system', before.contactAvailable === 'yes' && parsed.contactAvailable === 'unknown' && !hasProfessionalContact(parsed.contact) ? 'Fiche modifiée. Dernier canal supprimé : contact à vérifier.' : 'Informations de la fiche mises à jour.');
+      if (columns.filter((key) => key !== 'stage').some((key) => before[key] !== parsed[key]) || contactChanged) this.log(id, 'system', before.contactAvailable === 'yes' && parsed.contactAvailable === 'unknown' && !hasProfessionalContact(parsed.contact) ? 'Fiche modifiée. Dernier canal supprimé : contact à vérifier.' : 'Informations de la fiche mises à jour.');
+      return this.requireCompany(id);
+    }).immediate();
+  }
+
+  qualifyOpportunity(id: string): Company {
+    return this.db.transaction(() => {
+      const company = this.requireCompany(id);
+      if (!canQualifyOpportunity(company)) throw new Error('Les conditions après échange doivent être confirmées avant de qualifier cette opportunité.');
+      const qualification = company.qualification || emptyQualification();
+      if (company.stage === 'Opportunité qualifiée' && qualification.afterExchange.qualifiedAt) return company;
+      qualification.afterExchange.qualifiedAt = now();
+      this.db.prepare('UPDATE companies SET stage = ?, commercialStage = ?, qualification = ?, updatedAt = ? WHERE id = ?').run('En échange', 'Opportunité qualifiée', JSON.stringify(qualification), now(), id);
+      this.log(id, 'system', `Étape modifiée explicitement : ${company.stage} → Opportunité qualifiée.`);
+      return this.requireCompany(id);
+    }).immediate();
+  }
+
+  private saveQualificationData(id: string, update: (company: Company) => QualificationData, message: string): Company {
+    return this.db.transaction(() => {
+      const company = this.requireCompany(id);
+      const previous = company.qualification || emptyQualification();
+      const qualification = qualificationDataSchema.parse(update(company));
+      if (JSON.stringify(previous) === JSON.stringify(qualification)) return company;
+      this.db.prepare('UPDATE companies SET qualification = ?, updatedAt = ? WHERE id = ?').run(JSON.stringify(qualification), now(), id);
+      this.log(id, 'system', message);
+      return this.requireCompany(id);
+    }).immediate();
+  }
+
+  saveQualification(id: string, input: unknown, confirmTarget: boolean, expectedTarget?: TargetSnapshot): Company {
+    if (typeof confirmTarget !== 'boolean') throw new Error('Confirmez explicitement la cible utilisée.');
+    const parsed = qualificationInputSchema.parse(input);
+    const expected = confirmTarget && expectedTarget !== undefined ? targetSnapshotSchema.parse(expectedTarget) : undefined;
+    return this.saveQualificationData(id, (company) => {
+      const current = company.qualification || emptyQualification();
+      const target = confirmTarget ? captureTarget(this.getSettings()) : current.targetSnapshot;
+      if (confirmTarget && (!expected || !target || (Object.keys(target) as (keyof TargetSnapshot)[]).some(key => expected[key] !== target[key]))) {
+        throw new Error('La cible a changé depuis l’ouverture de la fiche. Actualisez la page avant de confirmer cette évaluation.');
       }
-    })();
-    return this.requireCompany(id);
+      return { ...current, answers: parsed.answers, targetSnapshot: target };
+    }, 'Qualification de prospection enregistrée.');
+  }
+
+  saveObservations(id: string, input: unknown): Company {
+    const parsed = observationsSchema.parse(input);
+    return this.saveQualificationData(id, (company) => ({ ...(company.qualification || emptyQualification()), observations: parsed }), 'Constats manuels du site mis à jour.');
+  }
+
+  saveAfterExchange(id: string, input: unknown): Company {
+    const parsed = afterExchangeInputSchema.parse(input);
+    return this.saveQualificationData(id, (company) => {
+      const current = company.qualification || emptyQualification();
+      return { ...current, afterExchange: { ...parsed, qualifiedAt: current.afterExchange.qualifiedAt } };
+    }, 'Informations après échange mises à jour.');
   }
 
   findDuplicates(input: CompanyInput, excludeId?: string): { id: string; name: string }[] {
@@ -254,17 +314,20 @@ export class Store {
   }
 
   getSettings(): Settings {
-    return this.db.prepare('SELECT targetCity, targetBusiness FROM settings WHERE id = 1').get() as Settings;
+    return this.db.prepare('SELECT targetCity, targetBusiness, targetCompanyType, targetOffer, targetExclusions FROM settings WHERE id = 1').get() as Settings;
   }
 
   saveSettings(input: Settings): void {
-    const settings = settingsSchema.parse(input);
-    this.db.prepare('UPDATE settings SET targetCity = ?, targetBusiness = ? WHERE id = 1').run(settings.targetCity, settings.targetBusiness);
+    this.db.transaction(() => {
+      const current = this.getSettings();
+      const settings = settingsSchema.parse({ ...input, targetCompanyType: input.targetCompanyType ?? current.targetCompanyType, targetOffer: input.targetOffer ?? current.targetOffer, targetExclusions: input.targetExclusions ?? current.targetExclusions });
+      this.db.prepare('UPDATE settings SET targetCity = ?, targetBusiness = ?, targetCompanyType = ?, targetOffer = ?, targetExclusions = ? WHERE id = 1').run(settings.targetCity, settings.targetBusiness, settings.targetCompanyType, settings.targetOffer, settings.targetExclusions);
+    }).immediate();
   }
 
   exportBackup(): Backup {
     return this.db.transaction(() => ({
-      schemaVersion: 1 as const, exportedAt: now(), companies: this.listCompanies(),
+      schemaVersion: 2 as const, exportedAt: now(), companies: this.listCompanies(),
       activities: this.db.prepare('SELECT * FROM activities ORDER BY createdAt, rowid').all() as Activity[],
       aiTests: this.db.prepare('SELECT * FROM ai_tests ORDER BY createdAt, rowid').all() as AiTest[],
       settings: this.getSettings(),

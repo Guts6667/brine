@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { stages, type AiTest, type Company, type Contact } from './types';
+import { emptyQualification, qualificationDataSchema } from './qualification';
 
 z.config(z.locales.fr());
 
@@ -114,7 +115,11 @@ export const activityInputSchema = z.object({
   date: dateSchema.default(''), text: text(20000).min(1, 'Ajoutez le texte de la note ou de l’échange.'),
 });
 
-export const settingsSchema = z.object({ targetCity: text(180), targetBusiness: text(300) });
+const settingsFields = { targetCity: text(180), targetBusiness: text(300) };
+const fullSettingsFields = { ...settingsFields, targetCompanyType: text(300), targetOffer: text(1000), targetExclusions: text(2000) };
+export const settingsSchema = z.object({
+  ...settingsFields, targetCompanyType: text(300).default(''), targetOffer: text(1000).default(''), targetExclusions: text(2000).default(''),
+});
 
 const countSchema = z.number().int('Utilisez un entier.').nonnegative('Utilisez un nombre positif ou nul.').nullable();
 const aiFields = {
@@ -149,24 +154,29 @@ const timestampSchema = z.iso.datetime({ offset: true });
 const nextActionSchema = z.object({
   id: idSchema, text: text(500).min(1), date: dateSchema, createdAt: timestampSchema,
 }).strict();
-const companySchema = z.object({
+const companyFields = {
   id: idSchema, name: nameSchema, website: urlSchema, city: text(180), business: text(300),
   targetFit: answerSchema, problemFound: answerSchema, contactAvailable: answerSchema,
   observation: text(), proofUrl: urlSchema, observedOn: dateSchema, trigger: text(2000),
   stage: stageSchema, archived: z.boolean(), oppositionActive: z.boolean(),
   oppositionDate: dateSchema, oppositionNote: text(), contact: contactSchema,
   nextAction: nextActionSchema.nullable(), createdAt: timestampSchema, updatedAt: timestampSchema,
-}).strict().superRefine((company, context) => {
+};
+function checkCompanyIntegrity(company: {
+  problemFound: string; observation: string; contactAvailable: string; contact: Contact;
+  oppositionActive: boolean; nextAction: unknown; oppositionDate: string;
+}, context: z.RefinementCtx) {
   checkQualification(company, context);
   if (company.oppositionActive && company.nextAction) {
-    context.addIssue({ code: 'custom', path: ['nextAction'],
-      message: 'Une opposition active doit annuler la prochaine action.' });
+    context.addIssue({ code: 'custom', path: ['nextAction'], message: 'Une opposition active doit annuler la prochaine action.' });
   }
   if (company.oppositionActive && !company.oppositionDate) {
-    context.addIssue({ code: 'custom', path: ['oppositionDate'],
-      message: 'Une opposition active doit avoir une date.' });
+    context.addIssue({ code: 'custom', path: ['oppositionDate'], message: 'Une opposition active doit avoir une date.' });
   }
-});
+}
+const legacyStages = ['À étudier', 'À contacter', 'En échange', 'Proposition envoyée', 'Gagné', 'Perdu'] as const;
+const legacyCompanySchema = z.object({ ...companyFields, stage: z.enum(legacyStages) }).strict().superRefine(checkCompanyIntegrity);
+const companySchema = z.object({ ...companyFields, qualification: qualificationDataSchema }).strict().superRefine(checkCompanyIntegrity);
 const activitySchema = z.object({
   id: idSchema, companyId: idSchema,
   kind: z.enum(['note', 'exchange', 'action_done', 'action_rescheduled', 'system'], { error: 'Type d’activité inconnu.' }),
@@ -176,11 +186,20 @@ const aiTestSchema = z.object({
   id: idSchema, companyId: idSchema, ...aiFields, createdAt: timestampSchema,
 }).strict().superRefine(checkAiCounts);
 
-export const backupSchema = z.object({
-  schemaVersion: z.literal(1, { error: 'Cette sauvegarde doit utiliser le format Brine version 1.' }), exportedAt: timestampSchema,
-  companies: z.array(companySchema), activities: z.array(activitySchema), aiTests: z.array(aiTestSchema),
-  settings: settingsSchema.strict(),
-}).strict().superRefine((backup, context) => {
+const backupFields = {
+  exportedAt: timestampSchema, activities: z.array(activitySchema), aiTests: z.array(aiTestSchema),
+};
+const legacyBackupSchema = z.object({
+  ...backupFields, schemaVersion: z.literal(1), companies: z.array(legacyCompanySchema),
+  settings: z.object(fullSettingsFields).partial({ targetCompanyType: true, targetOffer: true, targetExclusions: true }).strict(),
+}).strict().transform((backup) => ({
+  ...backup, schemaVersion: 2 as const, companies: backup.companies.map((company) => ({ ...company, qualification: emptyQualification() })),
+  settings: settingsSchema.parse(backup.settings),
+}));
+const currentBackupSchema = z.object({
+  ...backupFields, schemaVersion: z.literal(2), companies: z.array(companySchema), settings: z.object(fullSettingsFields).strict(),
+}).strict();
+export const backupSchema = z.discriminatedUnion('schemaVersion', [legacyBackupSchema, currentBackupSchema], { error: 'Cette sauvegarde doit utiliser le format Brine version 1 ou 2.' }).superRefine((backup, context) => {
   const seen = new Set<string>();
   const registerId = (id: string, path: (string | number)[]) => {
     if (seen.has(id)) context.addIssue({ code: 'custom', path, message: 'Identifiant dupliqué dans la sauvegarde.' });

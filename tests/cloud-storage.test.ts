@@ -39,15 +39,15 @@ test('cloud adapter starts empty, saves name-only companies and persists over a 
   const f = fixture();
   try {
     assert.deepEqual(await f.store.listCompanies(), []);
-    assert.deepEqual(await f.store.getSettings(), { targetCity: 'Montpellier', targetBusiness: 'Rénovation intérieure' });
+    assert.deepEqual(await f.store.getSettings(), { targetCity: 'Montpellier', targetBusiness: 'Rénovation intérieure', targetCompanyType: '', targetOffer: '', targetExclusions: '' });
     const company = await create(f.store, "L'atelier");
     assert.equal(qualify(company).label, 'À vérifier');
     assert.equal(company.city, ''); assert.equal(company.business, ''); assert.equal(company.nextAction, null);
     await f.store.saveSettings({ targetCity: 'Lyon', targetBusiness: 'Menuiserie' });
     assert.deepEqual(await f.reopen().getCompany(company.id), company);
-    assert.deepEqual(await f.store.getSettings(), { targetCity: 'Lyon', targetBusiness: 'Menuiserie' });
+    assert.deepEqual(await f.store.getSettings(), { targetCity: 'Lyon', targetBusiness: 'Menuiserie', targetCompanyType: '', targetOffer: '', targetExclusions: '' });
     const migrations = await f.client.execute('SELECT version FROM schema_migrations ORDER BY version');
-    assert.deepEqual(migrations.rows.map(({ version }) => version), [1, 2]);
+    assert.deepEqual(migrations.rows.map(({ version }) => version), [1, 2, 3]);
   } finally { f.dispose(); }
 });
 

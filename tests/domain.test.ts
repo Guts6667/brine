@@ -6,6 +6,7 @@ import {
   isValidDate, nextActionInputSchema, normalizedDomain, normalizeText, parisToday, qualify,
 } from '../lib/domain';
 import type { Answer, Backup, Company, Contact } from '../lib/types';
+import { emptyQualification } from '../lib/qualification';
 
 const emptyContact: Contact = { name: '', role: '', email: '', phone: '', formUrl: '', profileUrl: '' };
 const timestamp = '2026-10-03T10:00:00.000Z';
@@ -213,17 +214,18 @@ test('AI count validation rejects negatives, fractions and measurements exceedin
 test('complete backups preserve every entity, settings, action and opposition', () => {
   const data = backup();
   data.companies[0].nextAction = { id: 'action-1', text: 'Appeler', date: '', createdAt: timestamp };
-  assert.deepEqual(backupSchema.parse(data), data);
+  const normalized=()=>({...data,schemaVersion:2,settings:{...data.settings,targetCompanyType:'',targetOffer:'',targetExclusions:''},companies:data.companies.map(c=>({...c,qualification:emptyQualification()}))});
+  assert.deepEqual(backupSchema.parse(data), normalized());
   data.companies[0].nextAction = null;
   data.companies[0].oppositionActive = true;
   data.companies[0].oppositionDate = '2026-10-03';
   data.companies[0].oppositionNote = 'Ne souhaite plus être contacté.';
-  assert.deepEqual(backupSchema.parse(data), data);
+  assert.deepEqual(backupSchema.parse(data), normalized());
 });
 
 test('backup validation rejects missing properties, unsafe URLs, bad dates, counts and schema versions', () => {
   const mutations: ((data: any) => void)[] = [
-    data => { data.schemaVersion = 2; },
+    data => { data.schemaVersion = 99; },
     data => { data.companies[0].id = '../settings'; },
     data => { delete data.companies[0].contact; },
     data => { delete data.companies[0].website; },
