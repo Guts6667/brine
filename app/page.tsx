@@ -4,7 +4,7 @@ import { ArrowRight, CalendarClock, CircleCheck, Clock3, Sprout, MapPin, Pencil,
 import { getCampaignRepository } from '@/lib/campaign-runtime';
 import { CampaignProvider } from '@/components/campaign-context';
 import { dueStatus, isEligible, parisToday } from '@/lib/domain';
-import { evaluateQualification, isFirstContactCandidate } from '@/lib/qualification';
+import { evaluateQualification } from '@/lib/qualification';
 import { evaluateContactReadiness } from '@/lib/contact-preparation';
 import { AddCompany } from '@/components/forms';
 import { TodayRow } from '@/components/presentation';
@@ -24,11 +24,11 @@ export default async function Today({searchParams}:{searchParams:Promise<{view?:
   const today=eligible.filter(c=>c.nextAction&&dueStatus(c.nextAction.date,currentDay)==='today').sort(byDate);
   const readiness=new Map(await Promise.all(all.map(async c=>[c.campaignId+':'+c.id,evaluateContactReadiness(c,campaignSettings(c),await repo.getCompanyReport(c.campaignId!,c.id),currentDay)] as const)));
   const good=eligible.filter(c=>readiness.get(c.campaignId+':'+c.id)?.ready&&readiness.get(c.campaignId+':'+c.id)?.firstContact&&(!c.nextAction||!c.nextAction.date)).sort(byPriority);
-  const preparing=eligible.filter(c=>!readiness.get(c.campaignId+':'+c.id)?.ready&&!c.nextAction&&['À étudier','À contacter'].includes(c.stage));
+  const preparing=eligible.filter(c=>!readiness.get(c.campaignId+':'+c.id)?.ready&&(!c.nextAction||!c.nextAction.date)&&['À étudier','À contacter'].includes(c.stage));
   const reviewRuns=(await Promise.all(active.map(c=>repo.listRuns(c.id)))).flat();
   const reviewCounts=await Promise.all(reviewRuns.map(async r=>({run:r,count:(await repo.listCandidates(r.id)).filter(c=>['review','needs_site','verify'].includes(c.status)).length})));
   const future=eligible.filter(c=>c.nextAction&&dueStatus(c.nextAction.date,currentDay)==='upcoming').sort(byDate);
-  const unplanned=eligible.filter(c=>c.nextAction&&!c.nextAction.date&&!isFirstContactCandidate(c,campaignSettings(c),currentDay)).sort(byDate);
+  const unplanned=eligible.filter(c=>c.nextAction&&!c.nextAction.date&&!(readiness.get(c.campaignId+':'+c.id)?.ready&&readiness.get(c.campaignId+':'+c.id)?.firstContact)).sort(byDate);
   const date=new Intl.DateTimeFormat('fr-FR',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/Paris'}).format(new Date(`${currentDay}T12:00:00Z`));
   const groups=upcoming?[{title:'Actions à venir',icon:<CalendarClock size={18}/>,list:future,empty:'Aucune action à venir. Une date peut être ajoutée depuis chaque fiche.'},{title:'Actions à planifier',icon:<Clock3 size={18}/>,list:unplanned,empty:'Toutes vos actions ont une date, ou vous n’en avez pas encore.'}]:[
     {title:'En retard',icon:<Clock3 size={18}/>,list:late,empty:'Aucune action en retard. Vous pouvez avancer sereinement.'},

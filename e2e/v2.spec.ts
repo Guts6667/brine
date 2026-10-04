@@ -85,8 +85,9 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     expect(participation.qualification.answers.fit.answer).toBe('unknown');
     await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Préparer$/ }).click();
     await expect(page.getByRole('heading', { name: 'Préparer votre conversation', exact: true })).toBeVisible();
-    await page.getByLabel('Preuve principale', { exact: true }).selectOption('social-fact-8');
-    await page.getByRole('button', { name: 'Construire / actualiser le plan', exact: true }).click();
+    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('social-fact-8');
+    await page.getByRole('button', { name: 'Proposer un plan pour cette preuve', exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Nouvelle proposition enregistrée.' })).toBeVisible();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue('Le profil présente des exemples de réalisations.');
     await page.getByRole('checkbox', { name: /Cette entreprise correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();

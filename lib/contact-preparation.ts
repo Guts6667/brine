@@ -22,11 +22,18 @@ function validEvidence(report: ProspectReport, ids: string[]): ResearchFact[] {
   }
   return facts as ResearchFact[];
 }
+function documentedChange(fact: ResearchFact): boolean {
+  const text = normalize(fact.text);
+  // A consultation date is not the date of an event. The public declaration must name both.
+  const event = /\b(?:ouverture|reouverture|nouvelle activite|nouveau service|nouvelle prestation|recrut(?:e|ent|ement)|demenagement|changement (?:d['’]adresse|de locaux|d['’]activite|de services?))\b/.test(text);
+  const date = /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{4}\b|\b(?:\d{1,2}(?:er)?\s+)?(?:janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s+\d{4}\b/.test(text);
+  return event && date && !/\b(?:aucune?|pas de|sans) (?:nouvelle activite|ouverture|reouverture|recrutement|demenagement|changement)\b/.test(text);
+}
 function rank(fact: ResearchFact): number {
   const text = normalize(fact.text);
   return /(?:a exprime|demande explicite|besoin exprime|besoin declare)/.test(text) ? 0
     : fact.sentiment === 'issue' && fact.kind === 'observed' ? 1
-      : /(?:annonce|nouveau|nouvelle|changement|recrute|ouverture)/.test(text) ? 2
+      : documentedChange(fact) ? 2
         : ['presentation', 'presence'].includes(fact.section) ? 3 : 4;
 }
 
@@ -41,7 +48,7 @@ function angleFor(fact: ResearchFact, offer: string): Pick<ApproachPlan, 'hypoth
     help: 'Préciser avec vous ce besoin et définir une intervention adaptée à votre fonctionnement, dans le cadre de mon offre.',
     question: 'Quel résultat aimeriez-vous obtenir en priorité et comment faites-vous aujourd’hui ?', nextStep,
   };
-  if (fact.section === 'fit' && /annonce|nouvelle activite|ouverture/.test(text)) return {
+  if (['fit', 'presentation'].includes(fact.section) && documentedChange(fact)) return {
     hypothesis: 'Ce changement documenté peut faire évoluer les informations à présenter ; aucune difficulté ni intention d’achat n’est déduite.',
     help: 'Examiner avec vous si vos supports de présentation et de contact doivent évoluer avec ce changement.',
     question: 'Qu’aimeriez-vous que les personnes qui découvrent cette évolution comprennent en priorité ?', nextStep,
@@ -76,7 +83,7 @@ function angleFor(fact: ResearchFact, offer: string): Pick<ApproachPlan, 'hypoth
     help: 'Examiner avec vous la présentation de vos prestations et le parcours de contact, selon vos besoins.',
     question: 'Comment présentez-vous l’ensemble de vos prestations aux personnes qui vous découvrent sur ce profil ?', nextStep,
   };
-  if (fact.section === 'presentation') return {
+  if (fact.section === 'presentation' || fact.section === 'fit' && /presentation|prestations|realisations|interventions|services/.test(text)) return {
     hypothesis: 'Les prestations ou réalisations documentées peuvent servir de point de départ pour discuter de leur présentation ; aucun défaut n’est déduit.',
     help: 'Examiner avec vous la façon de présenter ces prestations ou réalisations, si vous souhaitez la faire évoluer.',
     question: 'Qu’aimeriez-vous que les personnes qui découvrent votre activité comprennent en priorité ?', nextStep,
@@ -90,9 +97,25 @@ function angleFor(fact: ResearchFact, offer: string): Pick<ApproachPlan, 'hypoth
   return null;
 }
 
+function offeredServices(campaign: Campaign, profile: ProviderProfile): string {
+  return [campaign.targetOffer?.trim(), profile.services.trim(), profile.skills.trim()].filter(Boolean).join(' · ');
+}
+function orderEvidence(facts: ResearchFact[]): ResearchFact[] {
+  return facts.map((fact, index) => ({ fact, index })).sort((a, b) => rank(a.fact) - rank(b.fact) || a.index - b.index).map(item => item.fact);
+}
+/** The chooser and preparation use the same offer and provenance checks; no new collection occurs. */
+export function getEligibleApproachEvidence(report: ProspectReport, campaign: Campaign, profile: ProviderProfile): ResearchFact[] {
+  const offer = offeredServices(campaign, profile);
+  if (!offer) return [];
+  return orderEvidence(report.facts.filter(fact => {
+    try { validEvidence(report, [fact.id]); } catch { return false; }
+    return !!angleFor(fact, offer);
+  }));
+}
+
 export function createApproachPlan(report: ProspectReport, campaign: Campaign, profile: ProviderProfile, evidenceIds: string[], now = new Date()): ApproachPlan {
-  const facts = validEvidence(report, evidenceIds).sort((a, b) => rank(a) - rank(b));
-  const offer = [campaign.targetOffer?.trim(), profile.services.trim(), profile.skills.trim()].filter(Boolean).join(' · ');
+  const facts = orderEvidence(validEvidence(report, evidenceIds));
+  const offer = offeredServices(campaign, profile);
   if (!offer) throw new Error('Précisez votre offre réelle avant de préparer une approche.');
   const fact = facts.find(item => angleFor(item, offer));
   if (!fact) throw new Error('Aucun motif pertinent documenté pour votre offre. Complétez le dossier, gardez pour plus tard ou écartez.');
@@ -103,8 +126,8 @@ export function createApproachPlan(report: ProspectReport, campaign: Campaign, p
     question: 'Y a-t-il un aspect de votre présentation ou de votre parcours de contact que vous aimeriez faire évoluer ?',
     nextStep: 'Si aucun besoin n’est exprimé, clôturer ou conserver pour plus tard. Sinon, préciser les attentes avant de définir une aide.',
   } : angleFor(fact, offer)!;
-  const alternatives = report.facts.filter(item => item.id !== fact.id && !item.corrected && item.kind !== 'hypothesis' && item.sourceIds.length && angleFor(item, offer))
-    .sort((a, b) => rank(a) - rank(b)).slice(0, 2).map(item => ({ motive: item.text, evidenceIds: [item.id], rationale: 'Alternative sourcée à examiner selon votre offre ; ne pas cumuler les motifs dans le premier contact.' }));
+  const alternatives = getEligibleApproachEvidence(report, campaign, profile).filter(item => item.id !== fact.id)
+    .slice(0, 2).map(item => ({ motive: item.text, evidenceIds: [item.id], rationale: 'Alternative sourcée à examiner selon votre offre ; ne pas cumuler les motifs dans le premier contact.' }));
   const plan: ApproachPlan = {
     version: 1, method: 'conversation-v1', id: stableId('plan', [report.id, fact.id, campaign.targetOffer, profile.revision, angle]), reportId: report.id,
     evidenceIds: [fact.id], motive: fact.text,
@@ -156,6 +179,15 @@ function observationExcerpt(value: string, maximum = 260): { text: string; short
   const boundary = sentenceEnd && sentenceEnd >= 80 ? sentenceEnd : prefix.lastIndexOf(' ');
   return { text: value.slice(0, boundary && boundary > 0 ? boundary : maximum).trimEnd() + '…', shortened: true };
 }
+function helpSentence(value: string): string {
+  const text = value.trim();
+  if (!text) return '';
+  // Keep a personal sentence intact; only infinitive-style instructions need an introduction.
+  if (/^(?:je\b|j['’]|nous\b)/i.test(text)) return text;
+  const help = text.charAt(0).toLowerCase() + text.slice(1);
+  const introduction = /^[aeiouyàâäéèêëîïôöùûüœæ]/i.test(help) ? 'd’' : 'de ';
+  return `Je peux vous proposer ${introduction}${help}`;
+}
 export function buildContactDrafts(plan: ApproachPlan, report: ProspectReport, profile: ProviderProfile, context: DraftContext = {}): ContactDraft[] {
   assertPlan(plan, report);
   const now = context.now || new Date(), fact = report.facts.find(item => item.id === plan.evidenceIds[0])!;
@@ -164,7 +196,7 @@ export function buildContactDrafts(plan: ApproachPlan, report: ProspectReport, p
   const subject = fact.section === 'presentation' ? 'La présentation de vos prestations' : fact.section === 'presence' ? 'Vos prestations et votre présence en ligne' : fact.section === 'visibility' ? 'Les informations sur votre activité' : 'Votre parcours de contact en ligne';
   const email = draft(plan, profile, 'email', subject, [
     { label: 'Salutation', text: 'Bonjour,' }, { label: 'Présentation', text: introduction(profile) },
-    { label: 'Observation sourcée', text: observation }, { label: 'Aide proportionnée', text: `Je peux vous proposer de ${plan.help.charAt(0).toLowerCase()}${plan.help.slice(1)}` },
+    { label: 'Observation sourcée', text: observation }, { label: 'Aide proportionnée', text: helpSentence(plan.help) },
     { label: 'Question principale', text: plan.question }, { label: 'Signature', text: signature(profile) },
   ], now);
   const call = draft(plan, profile, 'call', 'Trame pour ouvrir une conversation', [

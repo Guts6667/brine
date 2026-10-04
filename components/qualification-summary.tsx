@@ -80,23 +80,28 @@ function CriterionEvidence({ criterion, qualification, company }: { criterion: C
   </div>;
 }
 
-export function QualificationSummary({ company, settings, today }: Props) {
+export function QualificationSummary({ company, settings, today, contactDecision }: Props) {
   const qualification = company.qualification ?? emptyQualification();
   const evaluation = evaluateQualification(company, settings, today);
+  const usesPreparation = Boolean(company.readiness && contactDecision);
+  const decision = usesPreparation ? contactDecision! : evaluation.decision;
   return <section className="qual-overview panel" aria-label="Résumé de la qualification" data-testid="qualification-summary">
     <div className="qual-overview-top">
-      <div className="qual-score"><span className="eyebrow">Priorité avant contact</span><ScoreValue evaluation={evaluation}/></div>
+      <div className="qual-score"><span className="eyebrow">{usesPreparation ? 'Qualification détaillée' : 'Priorité avant contact'}</span><ScoreValue evaluation={evaluation}/></div>
       <div className="qual-overview-decision">
-        <span className={`badge ${evaluation.decision === 'Prêt à contacter' ? 'badge-good' : evaluation.decision === 'Ne plus contacter' ? 'badge-blocked' : ''}`}>{evaluation.decision === 'Prêt à contacter' ? <Check size={13} aria-hidden="true"/> : <CircleAlert size={13} aria-hidden="true"/>}{evaluation.decision}</span>
-        {!!evaluation.reasons.length && <ul className="qual-main-reasons">{evaluation.reasons.slice(0, 3).map(reason => <li key={reason}>{reason}</li>)}</ul>}
-        <p className="qual-next-information"><strong>{evaluation.decision === 'Prêt à contacter' ? 'Prochaine possibilité' : 'Prochaine information à vérifier'}</strong>{evaluation.nextInformation}</p>
+        <span className={`badge ${decision === 'Prêt à contacter' ? 'badge-good' : decision === 'Ne plus contacter' ? 'badge-blocked' : ''}`}>{decision === 'Prêt à contacter' ? <Check size={13} aria-hidden="true"/> : <CircleAlert size={13} aria-hidden="true"/>}{decision}</span>
+        {usesPreparation ? <p className="qual-next-information">Pour préparer le contact, utilisez les confirmations de la cible, du motif documenté et du contact professionnel ci-dessus. Les cinq critères détaillés restent disponibles pour approfondir le dossier.</p> : <>
+          {!!evaluation.reasons.length && <ul className="qual-main-reasons">{evaluation.reasons.slice(0, 3).map(reason => <li key={reason}>{reason}</li>)}</ul>}
+          <p className="qual-next-information"><strong>{evaluation.decision === 'Prêt à contacter' ? 'Prochaine possibilité' : 'Prochaine information à vérifier'}</strong>{evaluation.nextInformation}</p>
+        </>}
       </div>
     </div>
-    {!!evaluation.blockers.length && <div className="qual-summary-notice"><strong>Ce qui bloque la prise de contact</strong><ul>{evaluation.blockers.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
-    {!!evaluation.warnings.length && <div className="qual-summary-notice">{evaluation.warnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
+    {!usesPreparation && !!evaluation.blockers.length && <div className="qual-summary-notice"><strong>Ce qui bloque la prise de contact</strong><ul>{evaluation.blockers.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
+    {!usesPreparation && !!evaluation.warnings.length && <div className="qual-summary-notice">{evaluation.warnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
     <details className="qual-score-details">
       <summary>Pourquoi ce score ?<ChevronDown size={15} aria-hidden="true"/></summary>
       <div className="qual-score-details-body">
+        {usesPreparation && !!evaluation.warnings.length && <div className="qual-summary-notice">{evaluation.warnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
         <p className="field-help">{evaluation.complete ? 'Les cinq critères sont complets. Le total additionne leurs points.' : 'Seuls les critères complets apportent des points confirmés. Le total reste en brouillon, sans priorité définitive.'}</p>
         {evaluation.criteria.map((criterion, index) => <section className="qual-criterion-detail" key={criterion.key}>
           <div className="qual-detail-heading"><h3><span className="qual-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span>{criterion.label}</h3><strong>{criterion.complete ? `${criterion.points}/${criterion.maxPoints} points` : criterion.answerLabel === 'À vérifier' ? 'À vérifier' : 'À compléter'}</strong></div>

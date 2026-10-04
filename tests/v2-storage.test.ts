@@ -147,16 +147,16 @@ for(const kind of ['local','cloud'] as const) {
       assert.equal((await f.repo.getRun(context.run.id)).status,'paused');
     }finally{f.close();}
   });
-  test(`${kind}: contact and follow-up are atomic, idempotent and require human readiness`,async()=>{
+  test(`${kind}: manually performed contact and follow-up are atomic and idempotent without granting readiness`,async()=>{
     const f=await fixture(kind);try {
       const context=await accepted(f),event:ContactEvent={id:randomUUID(),submittedKey:randomUUID(),date:parisToday(),channel:'email',outcome:'no_response',note:'Premier email envoyé',nextAction:{text:'Relire la réponse',date:'2026-10-20'}};
-      await assert.rejects(f.repo.recordContact(context.campaign.id,context.id,event,2),/Confirmez/);
-      const prep=await preparation(f,context);
-      event.draftId=prep.drafts.find(d=>d.channel==='email')!.id;
-      const result=await f.repo.recordContact(context.campaign.id,context.id,event,prep.company.participationRevision);
+      const before=await f.repo.getCompany(context.campaign.id,context.id);
+      await assert.rejects(f.repo.recordContact(context.campaign.id,context.id,{...event,date:'2099-01-01'},before.participationRevision),/jour passé/);
+      const result=await f.repo.recordContact(context.campaign.id,context.id,event,before.participationRevision);
       assert.equal(result.contactEvents?.length,1);assert.equal(result.nextAction?.text,'Relire la réponse');assert.equal(result.stage,'À étudier');
+      assert.equal(result.readiness,undefined);
       const activities=(await f.repo.listActivities(context.id)).length;
-      const repeated=await f.repo.recordContact(context.campaign.id,context.id,event,prep.company.participationRevision);
+      const repeated=await f.repo.recordContact(context.campaign.id,context.id,event,before.participationRevision);
       assert.equal(repeated.contactEvents?.length,1);assert.equal(repeated.nextAction?.id,result.nextAction?.id);assert.equal((await f.repo.listActivities(context.id)).length,activities);
       const bad={...event,id:randomUUID(),submittedKey:randomUUID(),nextAction:{text:'Suite',date:''}};
       await assert.rejects(f.repo.recordContact(context.campaign.id,context.id,bad,result.participationRevision));
@@ -238,6 +238,41 @@ for(const kind of ['local','cloud'] as const) {
       await assert.rejects(f.repo.completeActionWithOutcome(context.campaign.id,context.id,action.nextAction!.id,{...input,note:'Autre'},action.participationRevision),/d’autres informations/);
     }finally{f.close();}
   });
+  test(`${kind}: identical revalidation keeps the canonical plan while historical proposal IDs cannot replace other content`,async()=>{
+    const f=await fixture(kind);try{
+      const context=await accepted(f),prep=await preparation(f,context),proposalId=prep.plan.id;
+      const firstPersonal={...prep.plan,question:'Comment préférez-vous présenter vos prestations aux nouveaux interlocuteurs ?',createdAt:'2026-10-04T13:00:00.000Z'};
+      const first=await f.repo.savePreparation(context.campaign.id,context.id,{plan:firstPersonal,drafts:buildContactDrafts(firstPersonal,prep.report,prep.profile)},prep.company.participationRevision);
+      assert.notEqual(first.plan?.id,proposalId);
+      const personalId=first.plan!.id,personalCreatedAt=first.plan!.createdAt;
+      const firstDrafts=first.drafts!.filter(draft=>draft.planId===personalId);
+      assert.equal(firstDrafts.length,2);
+      const identical={...firstPersonal,createdAt:'2026-10-04T14:00:00.000Z'};
+      const repeated=await f.repo.savePreparation(context.campaign.id,context.id,{plan:identical,drafts:buildContactDrafts(identical,prep.report,prep.profile)},first.participationRevision);
+      assert.equal(repeated.plan?.id,personalId);assert.equal(repeated.plan?.createdAt,personalCreatedAt);
+      assert.equal(repeated.planHistory?.length,1);
+      for(const draft of firstDrafts)assert.deepEqual(repeated.drafts!.find(d=>d.id===draft.id),draft);
+      assert.equal(repeated.drafts!.filter(d=>d.planId===personalId).length,4);
+      const secondPersonal={...firstPersonal,question:'Quel canal souhaitez-vous privilégier pour vos prochaines demandes ?',createdAt:'2026-10-04T15:00:00.000Z'};
+      const second=await f.repo.savePreparation(context.campaign.id,context.id,{plan:secondPersonal,drafts:buildContactDrafts(secondPersonal,prep.report,prep.profile)},repeated.participationRevision);
+      assert.notEqual(second.plan?.id,proposalId);assert.notEqual(second.plan?.id,personalId);
+      const plans=[...(second.planHistory||[]),second.plan!];
+      assert.equal(new Set(plans.map(plan=>plan.id)).size,plans.length);
+      assert.equal(plans.find(plan=>plan.id===proposalId)?.question,prep.plan.question);
+      assert.equal(plans.find(plan=>plan.id===personalId)?.question,firstPersonal.question);
+      assert.equal(second.plan?.question,secondPersonal.question);
+      for(const draft of second.drafts!)assert.ok(plans.some(plan=>plan.id===draft.planId),'Every immutable draft keeps its exact plan.');
+      for(const draft of firstDrafts)assert.deepEqual(second.drafts!.find(d=>d.id===draft.id),draft);
+      const latestDraft=second.drafts!.find(d=>d.planId===second.plan!.id)!;
+      const edited=await f.repo.savePreparation(context.campaign.id,context.id,{drafts:[{...latestDraft,text:latestDraft.text+'\nTexte relu.'}]},second.participationRevision);
+      assert.equal(edited.plan?.id,second.plan?.id);
+      assert.equal(edited.drafts!.at(-1)?.planId,second.plan?.id);
+      const snapshot=await f.base.exportBackup();await f.base.restoreBackup(snapshot,true);
+      const restored=await f.repo.getCompany(context.campaign.id,context.id),restoredPlans=[...(restored.planHistory||[]),restored.plan!];
+      assert.deepEqual(restoredPlans,plans);
+      for(const draft of restored.drafts!)assert.ok(restoredPlans.some(plan=>plan.id===draft.planId));
+    }finally{f.close();}
+  });
   test(`${kind}: correcting an accepted result changes selection without duplicating its company or erasing history`,async()=>{
     const f=await fixture(kind);try {
       const context=await accepted(f),candidate=await f.repo.getCandidate(context.c.id);
@@ -248,11 +283,73 @@ for(const kind of ['local','cloud'] as const) {
       assert.equal(company.approach,'Autre piste sourcée');
       const history=await f.repo.listActivities(context.id);
       assert.equal(history.filter(a=>a.type==='Constat retenu').length,2);
+      const confirmed=await f.repo.getCandidate(candidate.id);
+      await f.repo.correctDecision(candidate.id,confirmed.revision,'accept');
+      assert.deepEqual((await f.repo.getCompany(context.campaign.id,context.id)).findingIds,[`${candidate.id}:fact-0-1`]);
+      const blankSelection=await f.repo.getCandidate(candidate.id);
+      await f.repo.correctDecision(candidate.id,blankSelection.revision,'accept',[],[],'',true);
+      assert.deepEqual((await f.repo.getCompany(context.campaign.id,context.id)).findingIds,[]);
+      assert.equal((await f.repo.listActivities(context.id)).filter(a=>a.type==='Constat retenu').length,2);
       const latest=await f.repo.getCandidate(candidate.id);
       await f.repo.correctDecision(candidate.id,latest.revision,'reject');
       assert.equal((await f.repo.getCandidate(candidate.id)).status,'rejected');
       assert.equal((await f.repo.memberships(context.id)).length,1);
       assert.ok(await f.repo.getCompanyReport(context.campaign.id,context.id));
+    }finally{f.close();}
+  });
+  test(`${kind}: removing an accepted candidate archives only its campaign participation and retains every dossier version`,async()=>{
+    const f=await fixture(kind);try{
+      const context=await accepted(f),prep=await preparation(f,context),other=await f.repo.saveCampaign({...target,name:'Deuxième campagne'});
+      await f.repo.attach(other.id,context.id);
+      const otherBefore=await f.repo.getCompany(other.id,context.id),otherAction=await f.repo.setAction(other.id,context.id,{text:'Lire le dossier',date:'2026-10-20'},null,otherBefore.participationRevision);
+      const action=await f.repo.setAction(context.campaign.id,context.id,{text:'Contact envisagé',date:'2026-10-20'},null,prep.company.participationRevision);
+      const current=await f.repo.getCandidate(context.c.id);
+      await assert.rejects(f.repo.removeCandidateParticipation(current.id,current.revision,action.participationRevision-1),/suivi a changé/);
+      assert.equal(await f.repo.removeCandidateParticipation(current.id,current.revision,action.participationRevision),context.id);
+      const archived=await f.repo.getCompany(context.campaign.id,context.id),untouched=await f.repo.getCompany(other.id,context.id);
+      assert.equal(archived.archived,true);assert.equal(archived.nextAction,null);
+      assert.deepEqual(archived.findingIds,prep.company.findingIds);assert.deepEqual(archived.drafts,prep.company.drafts);
+      assert.equal(untouched.archived,false);assert.equal(untouched.nextAction?.id,otherAction.nextAction?.id);
+      assert.equal((await f.base.getCompany(context.id))?.archived,false);
+      assert.equal((await f.repo.getCandidate(current.id)).status,'accepted');
+      assert.equal((await f.repo.getCompanyReport(context.campaign.id,context.id))?.facts.filter(f=>f.id.startsWith('fact-0-')).length,12);
+      const snapshot=await f.base.exportBackup();await f.base.restoreBackup(snapshot,true);
+      assert.equal((await f.repo.getCompany(context.campaign.id,context.id)).archived,true);
+      assert.equal((await f.base.getCompany(context.id))?.archived,false);
+    }finally{f.close();}
+  });
+  test(`${kind}: actual contact retains the exact old draft despite changed profile, evidence and missing coordinates`,async()=>{
+    const f=await fixture(kind);try{
+      const context=await accepted(f),prep=await preparation(f,context),draft=prep.drafts.find(d=>d.channel==='email')!;
+      await f.repo.saveProviderProfile({...prep.profile,activity:'Développeur et accompagnateur'},prep.profile.revision);
+      const changed=await f.repo.getCompany(context.campaign.id,context.id);
+      const withoutCoordinates=await f.repo.updateCompany(context.campaign.id,context.id,{...changed,contact:{...changed.contact,email:'',phone:''}},changed.participationRevision,changed.updatedAt);
+      const result=await f.repo.recordContact(context.campaign.id,context.id,{id:randomUUID(),submittedKey:randomUUID(),date:'2026-10-01',channel:'email',outcome:'conversation',note:'Échange réalisé avant la saisie dans Brine.',draftId:draft.id,nextAction:null},withoutCoordinates.participationRevision);
+      assert.equal(result.stage,'En échange');assert.equal(result.contactEvents?.[0].draftId,draft.id);
+      assert.equal(result.drafts?.find(d=>d.id===draft.id)?.text,draft.text);assert.ok(result.drafts?.find(d=>d.id===draft.id)?.usedAt);
+      assert.deepEqual(result.readiness,withoutCoordinates.readiness);
+      assert.equal(result.contact.email,'');assert.equal((await f.repo.listActivities(context.id)).find(a=>a.type==='Contact effectué')?.date,'2026-10-01');
+      await assert.rejects(f.repo.recordContact(context.campaign.id,context.id,{id:randomUUID(),submittedKey:randomUUID(),date:parisToday(),channel:'phone',outcome:'no_response',note:'Version inconnue',draftId:randomUUID(),nextAction:null},result.participationRevision),/version utilisée.*introuvable/i);
+    }finally{f.close();}
+  });
+  test(`${kind}: opposition is recorded without preparation or coordinates, cancels every campaign action and forbids future contacts`,async()=>{
+    const f=await fixture(kind);try{
+      const company=await f.repo.createCompany('initial',{name:'Entreprise sans coordonnées',website:'',city:'Lyon',business:'Électricité'}),other=await f.repo.saveCampaign({...target,name:'Autre suivi'});
+      await f.repo.attach(other.id,company.id);
+      const first=await f.repo.setAction('initial',company.id,{text:'Lire la présentation',date:'2026-10-20'},null,company.participationRevision);
+      const second=await f.repo.getCompany(other.id,company.id);await f.repo.setAction(other.id,company.id,{text:'Vérifier la source',date:'2026-10-20'},null,second.participationRevision);
+      const initial=await f.repo.getCampaign('initial');await f.repo.setCampaignStatus('initial','paused',initial.revision);
+      const event:ContactEvent={id:randomUUID(),submittedKey:randomUUID(),date:parisToday(),channel:'phone',outcome:'opposition',note:'La personne demande de ne plus être contactée.',nextAction:{text:'Ancienne valeur du formulaire à ignorer',date:'2026-10-20'}};
+      const result=await f.repo.recordContact('initial',company.id,event,first.participationRevision);
+      assert.equal(result.oppositionActive,true);assert.equal(result.nextAction,null);assert.equal(result.contactEvents?.[0].nextAction,null);assert.equal(result.readiness,undefined);
+      assert.equal((await f.repo.getCompany(other.id,company.id)).nextAction,null);
+      assert.match((await f.repo.listActivities(company.id)).find(a=>a.type==='Contact effectué')?.text||'',/toutes les prochaines actions sont annulées/);
+      await f.repo.recordContact('initial',company.id,event,first.participationRevision);
+      assert.equal((await f.repo.getCompany('initial',company.id)).contactEvents?.length,1);
+      const otherCurrent=await f.repo.getCompany(other.id,company.id);
+      await assert.rejects(f.repo.recordContact(other.id,company.id,{...event,id:randomUUID(),submittedKey:randomUUID(),outcome:'no_response',nextAction:null},otherCurrent.participationRevision),/ne doit plus être contactée/);
+      await assert.rejects(f.repo.setAction(other.id,company.id,{text:'Relance interdite',date:'2026-10-20'},null,otherCurrent.participationRevision),/ne doit plus être contactée/);
+      assert.equal(backupSchema.safeParse(await f.base.exportBackup()).success,true);
     }finally{f.close();}
   });
   test(`${kind}: refuting an approach hypothesis preserves the observed fact and its backup history`,async()=>{

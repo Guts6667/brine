@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Client, InValue, Transaction } from '@libsql/client';
 import { z } from 'zod';
 import { companyInputSchema, companyDetailsSchema, settingsSchema, parisToday, isValidDate, normalizeText, normalizedDomain, nextActionInputSchema, activityInputSchema } from './domain';
-import { emptyQualification, qualificationDataSchema, captureTarget, qualificationInputSchema, observationsSchema, afterExchangeInputSchema, canQualifyOpportunity, evaluateQualification, targetSnapshotSchema } from './qualification';
+import { emptyQualification, qualificationDataSchema, captureTarget, qualificationInputSchema, observationsSchema, afterExchangeInputSchema, canQualifyOpportunity, targetSnapshotSchema } from './qualification';
 import type { Company, CompanyDetails, CompanyInput, Contact, Activity } from './types';
 import type { Campaign, Participation, CampaignCompany, DiscoveryRun, DiscoveryCandidate, CampaignBackupData } from './campaign-types';
 import type { ApproachPlan, ContactDraft, ContactEvent, ContactReadiness, ProspectReport, ProviderProfile, ResearchCorrection } from './research-types';
@@ -216,6 +216,9 @@ export class CampaignRepository {
     }, '');
   }
   async setArchived(campaignId:string,id:string,value:boolean,expected?:number) { return this.mutate(campaignId,id,expected,p=>{p.archived=z.boolean().parse(value);},value?'Participation archivée.':'Participation réactivée.'); }
+  async archiveParticipation(campaignId:string,id:string,expected?:number){
+    return this.mutate(campaignId,id,expected,p=>{p.archived=true;p.nextAction=null;},'Entreprise retirée de cette campagne. Sa fiche commune, son dossier et son historique sont conservés ; la prochaine action de cette campagne est annulée.');
+  }
   async addActivity(campaignId:string,id:string,input:unknown) { const p=activityInputSchema.parse(input); await this.transaction(async tx=>{ await this.participation(tx,campaignId,id);await this.log(tx,id,campaignId,p.text,p.kind,p.type,p.date); }); }
   async listActivities(companyId:string):Promise<(Activity & {campaignId?:string})[]> { const r=await this.client.execute({sql:'SELECT a.*, x.campaignId FROM activities a LEFT JOIN campaign_activity_context x ON x.activityId = a.id WHERE a.companyId = ? ORDER BY a.createdAt DESC, a.id',args:[companyId]});return r.rows.map(row=>row as unknown as Activity & {campaignId?:string}); }
   async setOpposition(campaignId:string,id:string,active:boolean,note:string,confirmed:boolean){
@@ -320,8 +323,9 @@ export class CampaignRepository {
     }
     return values.filter((value,index)=>values.findIndex(x=>x.provider===value.provider&&x.externalId===value.externalId)===index);
   }
-  async reviewCandidate(id:string,revision:number,decision:'accept'|'reject'|'verify',findingIds:string[],contactIndexes:number[],approach:string):Promise<string|null> {
+  async reviewCandidate(id:string,revision:number,decision:'accept'|'reject'|'verify',findingIds:string[],contactIndexes:number[],approach:string,selectionComplete=false):Promise<string|null> {
     z.enum(['accept','reject','verify']).parse(decision);z.string().max(4000).parse(approach);
+    z.boolean().parse(selectionComplete);
     return this.transaction(async tx=>{
       const candidate=await this.getCandidateTx(tx,id);
       if(candidate.revision!==revision)throw new Error('Ce résultat a changé. Rechargez le lot.');
@@ -366,21 +370,36 @@ export class CampaignRepository {
       await tx.execute({sql:'UPDATE companies SET updatedAt = ? WHERE id = ?',args:[new Date(Math.max(Date.now(),Date.parse(shared.updatedAt)+1)).toISOString(),companyId]});
       const p=await this.attachTx(tx,run.campaignId,companyId);
       const oldSelection=p.findingIds.filter(id=>id.startsWith(`${candidate.id}:`));
-      p.findingIds=[...new Set([...p.findingIds.filter(id=>!id.startsWith(`${candidate.id}:`)),...findingIds.map(id=>`${candidate.id}:${id}`)])];
+      const selectedFindingIds=alreadyAccepted&&!selectionComplete&&!findingIds.length?oldSelection.map(id=>id.slice(candidate.id.length+1)):findingIds;
+      p.findingIds=[...new Set([...p.findingIds.filter(id=>!id.startsWith(`${candidate.id}:`)),...selectedFindingIds.map(id=>`${candidate.id}:${id}`)])];
       p.approach=approach.trim()||p.approach;p.revision++;p.updatedAt=timestamp();
       await this.writeParticipation(tx,p);
-      for(const fact of facts.filter(f=>findingIds.includes(f.id)&&!oldSelection.includes(`${candidate.id}:${f.id}`))){
+      for(const fact of facts.filter(f=>selectedFindingIds.includes(f.id)&&!oldSelection.includes(`${candidate.id}:${f.id}`))){
         const sources=report.sources.filter(source=>fact.sourceIds.includes(source.id));
         await this.log(tx,companyId,run.campaignId,`${fact.text}\nNature : ${fact.kind}\nSource : ${sources.map(source=>source.url).join(', ')||candidate.company.sourceUrl}\nConsultation : ${fact.observedOn}\nPérimètre : ${fact.scope}`,'note','Constat retenu');
       }
-      if(alreadyAccepted)await this.log(tx,companyId,run.campaignId,`Décision du résultat confirmée. Sélection actuelle : ${findingIds.length} constat(s), ${contactIndexes.length} contact(s). Les précédents choix et les informations communes sont conservés dans l’historique.`);
+      if(alreadyAccepted)await this.log(tx,companyId,run.campaignId,`Décision du résultat confirmée. Sélection actuelle : ${selectedFindingIds.length} constat(s), ${contactIndexes.length} contact(s). Les précédents choix et les informations communes sont conservés dans l’historique.`);
       if(/^\d{9}$/.test(candidate.company.siren))await tx.execute({sql:'INSERT INTO company_registry_identity(siren, companyId, siret) VALUES (?, ?, ?) ON CONFLICT(siren) DO NOTHING',args:[candidate.company.siren,companyId,candidate.company.siret]});
       for(const source of sourceKeys)await tx.execute({sql:'INSERT INTO company_source_identity(provider,externalId,companyId) VALUES (?,?,?) ON CONFLICT(provider,externalId) DO NOTHING',args:[source.provider,source.externalId,companyId]});
       candidate.companyId=companyId;candidate.status='accepted';candidate.revision++;await this.putCandidate(tx,candidate);return companyId;
     });
   }
-  correctDecision(id:string,revision:number,decision:'accept'|'reject'|'verify',findingIds:string[]=[],contactIndexes:number[]=[],approach=''){
-    return this.reviewCandidate(id,revision,decision,findingIds,contactIndexes,approach);
+  correctDecision(id:string,revision:number,decision:'accept'|'reject'|'verify',findingIds:string[]=[],contactIndexes:number[]=[],approach='',selectionComplete=false){
+    return this.reviewCandidate(id,revision,decision,findingIds,contactIndexes,approach,selectionComplete);
+  }
+  async removeCandidateParticipation(id:string,revision:number,expectedParticipationRevision?:number):Promise<string>{
+    return this.transaction(async tx=>{
+      const candidate=await this.getCandidateTx(tx,id);
+      if(candidate.revision!==revision)throw new Error('Ce résultat a changé. Rechargez le lot.');
+      if(candidate.status!=='accepted'||!candidate.companyId)throw new Error('Retenez d’abord ce résultat dans la campagne.');
+      const runRow=await tx.execute({sql:'SELECT payload FROM discovery_runs WHERE id=?',args:[candidate.runId]});
+      const run=json<DiscoveryRun>(runRow.rows[0].payload),p=await this.participation(tx,run.campaignId,candidate.companyId);
+      if(expectedParticipationRevision!==undefined&&expectedParticipationRevision!==p.revision)throw new Error('Le suivi a changé. Rechargez avant de retirer cette entreprise.');
+      p.archived=true;p.nextAction=null;p.revision++;p.updatedAt=timestamp();await this.writeParticipation(tx,p);
+      candidate.revision++;await this.putCandidate(tx,candidate);
+      await this.log(tx,candidate.companyId,run.campaignId,'Entreprise retirée de cette campagne depuis le résultat de recherche. La fiche commune, les constats retenus et les préparations restent conservés ; aucune prochaine action dans cette campagne.');
+      return candidate.companyId;
+    });
   }
   async linkCandidateCompany(id:string,companyId:string,revision:number){
     return this.transaction(async tx=>{const candidate=await this.getCandidateTx(tx,id);if(candidate.revision!==revision)throw new Error('Ce résultat a changé.');await this.shared(tx,companyId);candidate.companyId=companyId;candidate.revision++;await this.putCandidate(tx,candidate);return candidate;});
@@ -464,9 +483,18 @@ export class CampaignRepository {
         const offer=campaign.targetOffer?.trim()||profile?.services||profile?.skills||'';
         if(parsed.plan.offer!==offer)throw new Error('L’offre a changé. Reprenez le plan de discours.');
         const samePlan=p.plan&&JSON.stringify({...p.plan,createdAt:'',id:''})===JSON.stringify({...parsed.plan,createdAt:'',id:''});
-        if(p.plan&&!samePlan){p.planHistory=[...(p.planHistory||[]),p.plan];}
         const nextPlan={...parsed.plan};
-        if(p.plan&&!samePlan&&nextPlan.id===p.plan.id)nextPlan.id=randomUUID();
+        if(p.plan&&samePlan){
+          // A revalidation may recreate the deterministic proposal ID. Keep the
+          // canonical identity already referenced by its immutable drafts.
+          nextPlan.id=p.plan.id;nextPlan.createdAt=p.plan.createdAt;
+        }else{
+          const knownPlans=[...(p.planHistory||[]),...(p.plan?[p.plan]:[])];
+          if(p.plan)p.planHistory=[...(p.planHistory||[]),p.plan];
+          // A proposal ID can also belong to an older plan with other wording.
+          // Every new content version must retain a distinct reference.
+          if(knownPlans.some(plan=>plan.id===nextPlan.id))nextPlan.id=randomUUID();
+        }
         p.plan=nextPlan;p.approach=parsed.plan.motive;
       }
       if(parsed.drafts){
@@ -486,7 +514,10 @@ export class CampaignRepository {
     },'Préparation du contact enregistrée.');
   }
   async recordContact(campaignId:string,id:string,input:ContactEvent,expected?:number,completeActionId?:string|null):Promise<CampaignCompany>{
-    const event=contactEventSchema.parse(input);
+    // This records a contact the user already performed manually. Preparation
+    // checks authorize future use of a draft; they cannot erase actual history.
+    const event=contactEventSchema.parse(input.outcome==='opposition'?{...input,nextAction:null}:input);
+    if(event.date>parisToday())throw new Error('Un contact réalisé doit être daté d’aujourd’hui ou d’un jour passé.');
     await this.transaction(async tx=>{
       const key=`contact:${event.submittedKey}`;
       const fingerprint=createHash('sha256').update(JSON.stringify({campaignId,companyId:id,event,completeActionId:completeActionId||null})).digest('hex');
@@ -498,22 +529,15 @@ export class CampaignRepository {
       if(priorEvent){if(JSON.stringify(priorEvent)!==JSON.stringify(event))throw new Error('Cette soumission a déjà été enregistrée avec d’autres informations.');return;}
       if(p.contactEvents?.some(prior=>prior.id===event.id))throw new Error('L’identifiant de ce contact est déjà utilisé.');
       if(expected!==undefined&&expected!==p.revision)throw new Error('Le suivi a changé. Rechargez avant d’enregistrer le contact.');
-      if(shared.oppositionActive)throw new Error('Cette entreprise ne doit plus être contactée.');
-      if(campaign.status!=='active'||p.archived)throw new Error('Réactivez la campagne et la participation.');
+      if(shared.oppositionActive&&event.outcome!=='opposition')throw new Error('Cette entreprise ne doit plus être contactée.');
+      if(event.nextAction&&(campaign.status!=='active'||p.archived))throw new Error('Réactivez la campagne et la participation pour planifier la suite.');
       if(completeActionId!==undefined&&completeActionId!==(p.nextAction?.id||null))throw new Error('Cette action a changé. Rechargez la fiche.');
-      const report=await this.companyReportTx(tx,campaignId,id),r=p.readiness;
-      const legacyReady=!p.readiness&&!p.plan&&evaluateQualification(this.project(shared,p,campaign),campaign,parisToday()).decision==='Prêt à contacter';
-      const ready=r&&r.target&&r.reason&&r.channel&&!p.plan?.revalidateReason&&r.targetRevision===campaign.revision&&r.reportId===report?.id&&r.channelKind===event.channel&&r.evidenceIds.length&&r.evidenceIds.every(factId=>report?.facts.some(f=>f.id===factId&&f.kind!=='hypothesis'&&!f.corrected&&f.sourceIds.some(sourceId=>report.sources.some(s=>s.id===sourceId))));
-      if(!ready&&!legacyReady)throw new Error('Confirmez la cible, le motif documenté et le canal professionnel avant le contact.');
-      if(!validProfessionalChannel(event.channel,shared.contact[event.channel]))throw new Error('Le canal professionnel doit être renseigné.');
       if(event.draftId){
         const matches=p.drafts?.filter(d=>d.id===event.draftId)||[];
         if(matches.length>1)throw new Error('Cette préparation contient plusieurs versions ambiguës. Enregistrez une nouvelle version avant le contact.');
         const draft=matches[0];
-        const profileRow=(await tx.execute("SELECT payload FROM research_provider_profile WHERE id = 'provider'")).rows[0];
-        const profileRevision=profileRow?json<ProviderProfile>(profileRow.payload).revision:0;
-        if(!draft||draft.reportId!==report?.id||draft.planId!==p.plan?.id||draft.profileRevision!==profileRevision)throw new Error('La préparation a changé. Revalidez le brouillon utilisé.');
-        draft.usedAt=timestamp();
+        if(!draft)throw new Error('La version utilisée du brouillon est introuvable dans ce suivi.');
+        draft.usedAt||=timestamp();
       }
       const oldAction=p.nextAction;
       p.nextAction=event.nextAction?{...nextActionInputSchema.parse(event.nextAction),id:randomUUID(),createdAt:timestamp()}:null;
@@ -524,7 +548,7 @@ export class CampaignRepository {
       await this.writeParticipation(tx,p);
       if(completeActionId&&oldAction)await this.log(tx,id,campaignId,oldAction.text,'action_done');
       const outcomes={no_response:'Sans réponse',conversation:'Échange obtenu',callback:'À rappeler',not_interested:'Pas intéressé',opposition:'Ne plus contacter'};
-      await this.log(tx,id,campaignId,`${outcomes[event.outcome]} — ${event.channel==='email'?'Email':'Appel'}${event.note?`\n${event.note}`:''}${event.nextAction?`\nSuite : ${event.nextAction.text} (${event.nextAction.date})`:'\nAucun suivi prévu.'}`,event.outcome==='conversation'?'exchange':'note','Contact effectué',event.date);
+      await this.log(tx,id,campaignId,`${outcomes[event.outcome]} — ${event.channel==='email'?'Email':'Appel'}${event.note?`\n${event.note}`:''}${event.outcome==='opposition'?'\nOpposition commune enregistrée : toutes les prochaines actions sont annulées et tout nouveau contact est bloqué.':''}${event.nextAction?`\nSuite : ${event.nextAction.text} (${event.nextAction.date})`:'\nAucun suivi prévu.'}`,event.outcome==='conversation'?'exchange':'note','Contact effectué',event.date);
       if(event.outcome==='opposition'){
         await tx.execute({sql:'UPDATE companies SET oppositionActive=1, oppositionDate=?, oppositionNote=?, updatedAt=? WHERE id=?',args:[shared.oppositionDate||event.date,event.note,timestamp(),id]});
         await tx.execute({sql:'DELETE FROM next_actions WHERE companyId=?',args:[id]});

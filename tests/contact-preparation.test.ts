@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildProspectReport } from '../lib/research-report';
-import { buildContactDrafts, buildFollowupDraft, buildReplyDraft, createApproachPlan, emptyProviderProfile, evaluateContactReadiness, validateGeneratedPreparation, validateReportNarrative } from '../lib/contact-preparation';
+import { buildContactDrafts, buildFollowupDraft, buildReplyDraft, createApproachPlan, emptyProviderProfile, evaluateContactReadiness, getEligibleApproachEvidence, validateGeneratedPreparation, validateReportNarrative } from '../lib/contact-preparation';
 import { captureTarget, emptyQualification } from '../lib/qualification';
 import { contactEventSchema } from '../lib/research-schemas';
 import type { Campaign, DiscoveryCandidate } from '../lib/campaign-types';
@@ -137,4 +137,69 @@ test('long presentation is quoted as a bounded literal excerpt while the full do
   assert.equal((email.text.match(/\?/g) || []).length, 1);
   assert.equal(plan.motive, fullText);
   assert.equal(dossier.facts.find(fact => fact.id === 'long-presentation')!.text, fullText);
+});
+test('an announcement of existing services is a presentation opportunity without an invented dated change', () => {
+  const dossier = report(), sourceId = dossier.sources[0].id;
+  const text = 'La présentation annonce des interventions pour les particuliers.';
+  dossier.facts.push({ id: 'services-announcement', section: 'fit', kind: 'reported', sentiment: 'neutral', text, sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'Prestations déclarées sur le site.' });
+  const plan = createApproachPlan(dossier, campaign, profile, ['services-announcement'], now);
+  assert.equal(plan.motive, text);
+  assert.match(plan.help, /présenter ces prestations ou réalisations/);
+  assert.doesNotMatch(plan.hypothesis + plan.question, /changement documenté|cette évolution/);
+  const email = buildContactDrafts(plan, dossier, profile, { now }).find(draft => draft.channel === 'email')!;
+  assert.match(email.text, /proposer d’examiner avec vous/);
+  assert.doesNotMatch(email.text, /proposer de examiner/);
+});
+test('a change motive requires an explicit event and its public date, rather than a consultation date', () => {
+  const dossier = report(), sourceId = dossier.sources[0].id;
+  dossier.facts.push({ id: 'dated-opening', section: 'presentation', kind: 'reported', sentiment: 'neutral', text: 'Ouverture du nouvel atelier le 12 octobre 2026.', sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'Événement déclaré sur le site.' });
+  const dated = createApproachPlan(dossier, campaign, profile, ['dated-opening'], now);
+  assert.match(dated.hypothesis, /Ce changement documenté/);
+  dossier.facts.push({ id: 'undated-opening', section: 'presentation', kind: 'reported', sentiment: 'neutral', text: 'Ouverture du nouvel atelier.', sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'Date de l’événement inconnue.' });
+  const undated = createApproachPlan(dossier, campaign, profile, ['undated-opening'], now);
+  assert.doesNotMatch(undated.hypothesis + undated.question, /changement documenté|cette évolution/);
+  const consonant = buildContactDrafts(createApproachPlan(dossier, campaign, profile, ['broken'], now), dossier, profile, { now })[0];
+  assert.match(consonant.text, /proposer de vérifier cet accès/);
+});
+test('a personally worded help sentence passes into the email intact without a second introduction', () => {
+  const dossier = report(), initial = createApproachPlan(dossier, campaign, profile, ['broken'], now);
+  for (const help of ['Je peux vous aider à vérifier le parcours de demande de devis.', 'J’examine avec vous cet accès si vous le souhaitez.', 'Nous pouvons vérifier ensemble cet accès.']) {
+    const plan = { ...initial, help }, drafts = buildContactDrafts(plan, dossier, profile, { now }), email = drafts.find(draft => draft.channel === 'email')!;
+    assert.equal(email.blocks.find(block => block.label === 'Aide proportionnée')!.text, help);
+    assert.doesNotMatch(email.text, /proposer de je|proposer de j’|proposer de nous/i);
+    assert.equal((email.text.match(/\?/g) || []).length, 1);
+    assert.deepEqual(plan.evidenceIds, ['broken']);
+    assert.equal(plan.motive, dossier.facts.find(fact => fact.id === 'broken')!.text);
+  }
+  const emptyHelp = { ...initial, help: '   ' }, email = buildContactDrafts(emptyHelp, dossier, profile, { now }).find(draft => draft.channel === 'email')!;
+  assert.equal(email.blocks.find(block => block.label === 'Aide proportionnée')!.text, '');
+  assert.doesNotMatch(email.text, /Je peux vous proposer|Je peux vous aider|promets|garantis/);
+  assert.ok(email.text.includes(initial.motive));
+  assert.ok(email.text.includes(initial.question));
+  assert.equal((email.text.match(/\?/g) || []).length, 1);
+  assert.deepEqual(emptyHelp.evidenceIds, initial.evidenceIds);
+});
+test('eligible evidence excludes incompatible, hypothetical, corrected and unsourced facts with stable ordering', () => {
+  const dossier = report(), sourceId = dossier.sources[0].id;
+  const base = { section: 'presentation' as const, kind: 'reported' as const, sentiment: 'neutral' as const, sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'Déclaration publique.' };
+  dossier.facts.push(
+    { ...base, id: 'presentation-a', text: 'Prestations pour les particuliers.' },
+    { ...base, id: 'presentation-b', text: 'Réalisations présentées dans une galerie.' },
+    { ...base, id: 'corrected-presentation', text: 'Déclaration corrigée.', corrected: true },
+    { ...base, id: 'hypothesis-presentation', text: 'Il serait peut-être utile de refaire le site.', kind: 'hypothesis' },
+    { ...base, id: 'orphan-presentation', text: 'Déclaration sans source disponible.', sourceIds: ['missing-source'] },
+    { ...base, id: 'declared-need', section: 'fit', text: 'Besoin exprimé : préciser le parcours de demande de devis.' },
+    { ...base, id: 'dated-change', text: 'Nouvelle activité de restauration de meubles depuis septembre 2026.' },
+  );
+  const eligible = getEligibleApproachEvidence(dossier, campaign, profile), ids = eligible.map(fact => fact.id);
+  assert.equal(ids[0], 'declared-need');
+  assert.equal(ids[1], 'broken');
+  assert.equal(ids[2], 'dated-change');
+  assert.ok(ids.indexOf('presentation-a') < ids.indexOf('presentation-b'));
+  for (const id of ['positive', 'corrected-presentation', 'hypothesis-presentation', 'orphan-presentation']) assert.ok(!ids.includes(id));
+  assert.deepEqual(getEligibleApproachEvidence(dossier, campaign, profile).map(fact => fact.id), ids);
+  for (const fact of eligible) assert.doesNotThrow(() => createApproachPlan(dossier, campaign, profile, [fact.id], now));
+  assert.deepEqual(getEligibleApproachEvidence(dossier, { ...campaign, targetOffer: 'Formation en comptabilité' }, emptyProviderProfile()), []);
+  const plan = createApproachPlan(dossier, campaign, profile, ['broken'], now);
+  assert.ok(plan.alternatives?.every(alternative => alternative.evidenceIds.every(id => ids.includes(id))));
 });
