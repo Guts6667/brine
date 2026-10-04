@@ -29,6 +29,11 @@ test('enrichment migration and Pickles defaults are shared without overwriting a
  const custom={...picklesProviderProfile(),name:'Autre studio',services:'Conseil'};assert.deepEqual(withDefaultProviderProfile(custom),custom);assert.match(withDefaultProviderProfile().website,/studiopickles/);
 });
 for(const kind of ['local','cloud'] as const){
+ test(`${kind}: accumulated qualification lists never open more than three simultaneous contexts and preserve their order`,async()=>{const f=await fixture(kind);try{
+  const ids=[f.c.id];for(let i=0;i<8;i++){const candidate={...f.c,id:randomUUID(),company:{...f.c.company,name:'Atelier '+i}};ids.push(candidate.id);await f.repo.transaction(tx=>f.repo.putCandidate(tx,candidate));}
+  const load=f.repo.getQualificationContext.bind(f.repo);let active=0,maximum=0;f.repo.getQualificationContext=async id=>{active++;maximum=Math.max(maximum,active);try{await new Promise(resolve=>setTimeout(resolve,5));return await load(id);}finally{active--;}};
+  const contexts=await f.repo.getQualificationContexts(ids);assert.deepEqual(contexts.map(context=>context.candidate.id),ids);assert.equal(maximum,3);assert.equal(active,0);
+ }finally{f.close();}});
  test(`${kind}: a captured vision proposal is reachable but cannot assign points before a separate human confirmation`,async()=>{const f=await fixture(kind);try{
   let context=await f.repo.getQualificationContext(f.c.id),proposal=context.suggestions.find(s=>s.criterion==='problem')!;assert.equal(proposal.points,15);assert.equal(evaluateQualification(context.company,f.campaign,parisToday()).score,null);
   assert.equal(getEligibleApproachEvidence(context.report,f.campaign,picklesProviderProfile()).length,0);

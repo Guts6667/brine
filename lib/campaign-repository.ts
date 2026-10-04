@@ -273,6 +273,13 @@ export class CampaignRepository {
     return {candidate,campaign,company,report,suggestions:proposeQualification(report,campaign,company.qualificationEnrichment)};
   }
   getQualificationContext(id:string){return this.readTransaction(tx=>this.qualificationContextTx(tx,id));}
+  async getQualificationContexts(ids:string[]){
+    const contexts:Array<Awaited<ReturnType<CampaignRepository['getQualificationContext']>>>=[];
+    // Turso limits simultaneous database connections. Keep the list bounded,
+    // including when several discovery lots have accumulated in a campaign.
+    for(let offset=0;offset<ids.length;offset+=3)contexts.push(...await Promise.all(ids.slice(offset,offset+3).map(id=>this.getQualificationContext(id))));
+    return contexts;
+  }
   async saveCandidateQualification(id:string,revision:number,input:unknown,kind:'answers'|'observations'|'exchange'='answers',confirm=false,expectedTarget?:unknown){
     await this.transaction(async tx=>{
       const context=await this.qualificationContextTx(tx,id),{candidate,company,campaign}=context;
