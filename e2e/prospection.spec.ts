@@ -12,7 +12,8 @@ const questions = [
 async function backup(request: APIRequestContext): Promise<Backup> {
   const response = await request.get('/api/backup');
   expect(response.ok()).toBeTruthy();
-  return response.json();
+  const data:Backup=await response.json();
+  return {...data,companies:data.companies.map(c=>{const p=data.campaignData?.participations.find(p=>p.companyId===c.id&&p.campaignId==='initial');return p?{...c,stage:p.stage,archived:p.archived,nextAction:c.oppositionActive?null:p.nextAction,qualification:{...p.qualification,observations:c.qualification!.observations}}:c;})};
 }
 
 async function createCompany(page: Page, name: string): Promise<string> {
@@ -21,7 +22,7 @@ async function createCompany(page: Page, name: string): Promise<string> {
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nom de l’entreprise', { exact: false }).fill(name);
   await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
-  await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1$/);
+  await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   return new URL(page.url()).pathname.split('/').at(-1)!;
 }
@@ -263,7 +264,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
 
   // Older complete JSON files remain restorable and are exported in the new format.
   const legacyBackup = {
-    ...prior,
+    exportedAt:prior.exportedAt,activities:prior.activities,aiTests:prior.aiTests,
     schemaVersion: 1,
     settings: { targetCity: prior.settings.targetCity, targetBusiness: prior.settings.targetBusiness },
     companies: prior.companies.map(({ qualification: _qualification, ...company }) => company),
@@ -279,7 +280,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Restauration terminée.' })).toBeVisible();
   const normalized = await backup(request);
-  expect(normalized.schemaVersion).toBe(2);
+  expect(normalized.schemaVersion).toBe(3);
   expect(normalized.companies).toHaveLength(prior.companies.length);
   expect(normalized.aiTests).toEqual(prior.aiTests);
   for (const activity of prior.activities) expect(normalized.activities).toContainEqual(activity);

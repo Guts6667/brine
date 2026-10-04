@@ -1,3 +1,4 @@
+import { campaignSelects, campaignSnapshot, campaignRestoreStatements } from './campaign-backup';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
@@ -117,8 +118,10 @@ export class Store {
     this.insertActivity({ id: randomUUID(), companyId, kind, type, date: parisToday(), text, createdAt: now() });
   }
 
-  createCompany(input: CompanyInput): Company {
+  createCompany(input: CompanyInput, source?: { kind: 'note'; type: string; date: string; text: string }): Company {
     const parsed = companyInputSchema.parse(input);
+    const sourceNote = source === undefined ? undefined : activityInputSchema.parse(source);
+    if (sourceNote && (sourceNote.kind !== 'note' || sourceNote.text.length > 10000)) throw new Error('La source doit être une note de 10 000 caractères maximum.');
     const timestamp = now();
     const company: Company = {
       ...parsed, id: randomUUID(), targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown',
@@ -126,8 +129,35 @@ export class Store {
       oppositionActive: false, oppositionDate: '', oppositionNote: '', contact: emptyContact(), nextAction: null,
       createdAt: timestamp, updatedAt: timestamp, qualification: emptyQualification(),
     };
-    this.db.transaction(() => { this.insertCompany(company); this.log(company.id, 'system', 'Entreprise ajoutée.'); })();
+    this.db.transaction(() => {
+      this.insertCompany(company);
+      this.log(company.id, 'system', 'Entreprise ajoutée.');
+      if (sourceNote) this.insertActivity({ ...sourceNote, id: randomUUID(), companyId: company.id, createdAt: timestamp });
+    })();
     return this.requireCompany(company.id);
+  }
+
+  /** Add research evidence and previously empty contact channels in one commit. */
+  saveResearch(id: string, input: CompanyDetails, note: { kind: 'note'; type: string; date: string; text: string }, expectedUpdatedAt: string): Company {
+    const parsed = companyDetailsSchema.parse(input);
+    const activity = activityInputSchema.parse(note);
+    if (activity.kind !== 'note' || activity.text.length > 10000) throw new Error('La recherche doit être une note de 10 000 caractères maximum.');
+    return this.db.transaction(() => {
+      const before = this.requireCompany(id);
+      if (before.updatedAt !== expectedUpdatedAt) throw new Error('La fiche a changé depuis l’analyse. Actualisez-la et relancez l’analyse.');
+      const protectedFields = ['name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage'] as const;
+      if (protectedFields.some(key => parsed[key] !== before[key])) throw new Error('La recherche ne peut modifier que les contacts vides et son historique.');
+      if (contactColumns.some(key => parsed.contact[key] !== before.contact[key] && (before.contact[key].trim() || !['email', 'phone', 'formUrl'].includes(key)))) throw new Error('La recherche ne peut remplacer un contact existant.');
+      const contactChanged = contactColumns.some(key => parsed.contact[key] !== before.contact[key]);
+      if (contactChanged) {
+        this.db.prepare(`UPDATE contacts SET ${contactColumns.map(key => `"${key}" = ?`).join(', ')} WHERE companyId = ?`).run(...contactColumns.map(key => parsed.contact[key]), id);
+        this.log(id, 'system', 'Contacts proposés par la recherche ajoutés.');
+      }
+      this.insertActivity({ ...activity, id: randomUUID(), companyId: id, createdAt: now() });
+      const timestamp = new Date(Math.max(Date.now(), Date.parse(before.updatedAt) + 1)).toISOString();
+      this.db.prepare('UPDATE companies SET updatedAt = ? WHERE id = ?').run(timestamp, id);
+      return this.requireCompany(id);
+    }).immediate();
   }
 
   updateCompany(id: string, input: CompanyDetails): Company {
@@ -326,12 +356,14 @@ export class Store {
   }
 
   exportBackup(): Backup {
-    return this.db.transaction(() => ({
-      schemaVersion: 2 as const, exportedAt: now(), companies: this.listCompanies(),
+    return this.db.transaction(() => {const ready=this.db.prepare("SELECT 1 FROM campaign_meta WHERE id = 'initial'").get();return ({
+      schemaVersion: ready ? 3 as const : 2 as const,
+      ...(ready ? {campaignData:campaignSnapshot(campaignSelects.map(sql=>this.db.prepare(sql).all() as Record<string,unknown>[]))}:{}),
+      exportedAt: now(), companies: this.listCompanies(),
       activities: this.db.prepare('SELECT * FROM activities ORDER BY createdAt, rowid').all() as Activity[],
       aiTests: this.db.prepare('SELECT * FROM ai_tests ORDER BY createdAt, rowid').all() as AiTest[],
       settings: this.getSettings(),
-    }))();
+    });})();
   }
 
   private validateBackup(raw: unknown): Backup {
@@ -399,11 +431,13 @@ export class Store {
       const backupPath = join(backupDirectory, `avant-restauration-${now().replace(/[:.]/g, '-')}-${randomUUID()}.json`);
       writeFileSync(backupPath, JSON.stringify(existing, null, 2), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       this.db.transaction(() => {
+        for(const table of ['campaign_activity_context','discovery_candidates','discovery_runs','company_registry_identity','campaign_participations'])this.db.prepare(`DELETE FROM ${table}`).run();
         this.db.prepare('DELETE FROM companies').run(); // Child rows cascade in this same transaction.
         for (const company of incoming.companies) this.insertCompany(company);
         for (const activity of incoming.activities) this.insertActivity(activity);
         for (const test of incoming.aiTests) this.insertAiTest(test);
         this.saveSettings(incoming.settings);
+        for(const statement of campaignRestoreStatements(incoming,existing)){const item=typeof statement==='string'?{sql:statement,args:[]}:statement;this.db.prepare(item.sql).run(...(item.args as unknown[]||[]));}
       })();
       this.secureFiles();
       return { backupPath, preservedOppositions: preservedIds.size };

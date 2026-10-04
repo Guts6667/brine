@@ -1,3 +1,4 @@
+import { campaignSelects, campaignSnapshot, campaignRestoreStatements } from './campaign-backup';
 import type { Client, InStatement, InValue, Row, Transaction, TransactionMode } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
 import {
@@ -124,13 +125,41 @@ export class AsyncCloudStore {
   listCompanies(): Promise<Company[]> { return this.transact('read', (tx) => this.companies(tx)); }
   getCompany(id: string): Promise<Company | undefined> { return this.transact('read', async (tx) => (await this.companies(tx, id))[0]); }
 
-  async createCompany(input: CompanyInput): Promise<Company> {
+  async createCompany(input: CompanyInput, source?: { kind: 'note'; type: string; date: string; text: string }): Promise<Company> {
     const parsed = companyInputSchema.parse(input);
+    const sourceNote = source === undefined ? undefined : activityInputSchema.parse(source);
+    if (sourceNote && (sourceNote.kind !== 'note' || sourceNote.text.length > 10000)) throw new Error('La source doit être une note de 10 000 caractères maximum.');
     const timestamp = now();
     const company: Company = { ...parsed, id: randomUUID(), targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', observation: '', proofUrl: '', observedOn: '', trigger: '', stage: 'À étudier', archived: false, oppositionActive: false, oppositionDate: '', oppositionNote: '', contact: emptyContact(), nextAction: null, createdAt: timestamp, updatedAt: timestamp, qualification: emptyQualification() };
     return this.transact('write', async (tx) => {
-      await tx.batch([...companyStatements(company), logStatement(company.id, 'system', 'Entreprise ajoutée.')]);
+      await tx.batch([...companyStatements(company), logStatement(company.id, 'system', 'Entreprise ajoutée.'),
+        ...(sourceNote ? [activityStatement({ ...sourceNote, id: randomUUID(), companyId: company.id, createdAt: timestamp })] : []),
+      ]);
       return this.requireCompany(tx, company.id);
+    });
+  }
+
+  /** Add research evidence and previously empty contact channels in one commit. */
+  saveResearch(id: string, input: CompanyDetails, note: { kind: 'note'; type: string; date: string; text: string }, expectedUpdatedAt: string): Promise<Company> {
+    const parsed = companyDetailsSchema.parse(input);
+    const activity = activityInputSchema.parse(note);
+    if (activity.kind !== 'note' || activity.text.length > 10000) throw new Error('La recherche doit être une note de 10 000 caractères maximum.');
+    return this.transact('write', async tx => {
+      const before = await this.requireCompany(tx, id);
+      if (before.updatedAt !== expectedUpdatedAt) throw new Error('La fiche a changé depuis l’analyse. Actualisez-la et relancez l’analyse.');
+      const protectedFields = ['name', 'website', 'city', 'business', 'targetFit', 'problemFound', 'contactAvailable', 'observation', 'proofUrl', 'observedOn', 'trigger', 'stage'] as const;
+      if (protectedFields.some(key => parsed[key] !== before[key])) throw new Error('La recherche ne peut modifier que les contacts vides et son historique.');
+      if (contactColumns.some(key => parsed.contact[key] !== before.contact[key] && (before.contact[key].trim() || !['email', 'phone', 'formUrl'].includes(key)))) throw new Error('La recherche ne peut remplacer un contact existant.');
+      const contactChanged = contactColumns.some(key => parsed.contact[key] !== before.contact[key]);
+      const timestamp = new Date(Math.max(Date.now(), Date.parse(before.updatedAt) + 1)).toISOString();
+      await tx.batch([
+        ...(contactChanged ? [
+          statement(`UPDATE contacts SET ${contactColumns.map(key => `"${key}" = ?`).join(', ')} WHERE companyId = ?`, [...contactColumns.map(key => parsed.contact[key]), id]),
+          logStatement(id, 'system', 'Contacts proposés par la recherche ajoutés.'),
+        ] : []),
+        activityStatement({ ...activity, id: randomUUID(), companyId: id, createdAt: now() }), statement('UPDATE companies SET updatedAt = ? WHERE id = ?', [timestamp, id]),
+      ]);
+      return this.requireCompany(tx, id);
     });
   }
 
@@ -314,7 +343,9 @@ export class AsyncCloudStore {
   private async snapshot(tx: Transaction): Promise<Backup> {
     const companies = await this.companies(tx);
     const results = await tx.batch(['SELECT * FROM activities ORDER BY createdAt, rowid', 'SELECT * FROM ai_tests ORDER BY createdAt, rowid', 'SELECT targetCity, targetBusiness, targetCompanyType, targetOffer, targetExclusions FROM settings WHERE id = 1']);
-    return { schemaVersion: 2, exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
+    const ready=(await tx.execute("SELECT 1 FROM campaign_meta WHERE id = 'initial'")).rows.length>0;
+    const extra=ready?campaignSnapshot((await tx.batch(campaignSelects)).map(r=>r.rows as unknown as Record<string,unknown>[])):undefined;
+    return { schemaVersion: ready?3:2, ...(extra?{campaignData:extra}:{}), exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
   }
   exportBackup(): Promise<Backup> { return this.transact('read', (tx) => this.snapshot(tx)); }
 
@@ -351,13 +382,16 @@ export class AsyncCloudStore {
         preservedIds.add(company.id);
       }
       // Verify all preserved relations as well as the supplied file before changing stored data.
+      for(const p of incoming.campaignData?.participations||[])if(incoming.companies.find(c=>c.id===p.companyId)?.oppositionActive)p.nextAction=null;
       backupSchema.parse(incoming);
       const recoveryId = randomUUID();
       await tx.execute(statement('INSERT INTO brine_restore_backups(id, createdAt, payload) VALUES (?, ?, ?)', [recoveryId, now(), JSON.stringify(existing)]));
       // Explicit deletion also protects restoration if a database is configured without FK cascades.
-      await tx.batch(['DELETE FROM next_actions', 'DELETE FROM contacts', 'DELETE FROM activities', 'DELETE FROM ai_tests', 'DELETE FROM companies']);
+      await tx.batch(['DELETE FROM campaign_activity_context','DELETE FROM discovery_candidates','DELETE FROM discovery_runs','DELETE FROM company_registry_identity','DELETE FROM campaign_participations','DELETE FROM next_actions', 'DELETE FROM contacts', 'DELETE FROM activities', 'DELETE FROM ai_tests', 'DELETE FROM companies']);
       const statements = [...incoming.companies.flatMap(companyStatements), ...incoming.activities.map(activityStatement), ...incoming.aiTests.map(aiStatement), statement('UPDATE settings SET targetCity = ?, targetBusiness = ?, targetCompanyType = ?, targetOffer = ?, targetExclusions = ? WHERE id = 1', [incoming.settings.targetCity, incoming.settings.targetBusiness, incoming.settings.targetCompanyType || '', incoming.settings.targetOffer || '', incoming.settings.targetExclusions || ''])];
       for (let offset = 0; offset < statements.length; offset += 100) await tx.batch(statements.slice(offset, offset + 100));
+      const campaignStatements=campaignRestoreStatements(incoming,existing);
+      for(let offset=0;offset<campaignStatements.length;offset+=100)await tx.batch(campaignStatements.slice(offset,offset+100));
       return { backupPath: `cloud:${recoveryId}`, preservedOppositions: preservedIds.size };
     });
   }

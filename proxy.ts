@@ -31,4 +31,4 @@ export function proxy(request: NextRequest) {
   response.headers.set('Referrer-Policy', 'same-origin');
   return response;
 }
-export const config = { matcher: '/:path*' };
+export const config = { matcher: '/((?!\\.well-known/workflow/|api/campaign-runs/reconcile$).*)' };

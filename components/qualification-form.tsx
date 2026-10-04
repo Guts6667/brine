@@ -1,4 +1,5 @@
 'use client';
+import { CampaignFields } from './campaign-context';
 
 import { createContext, useActionState, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { HTMLInputTypeAttribute, ReactNode } from 'react';
@@ -37,7 +38,7 @@ function PayloadForm({ action, payload, children, submit, testId }: { action: Mu
     while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
     invalid?.focus();
   }, [state]);
-  return <FormState.Provider value={state}><form ref={ref} action={dispatch} className="qualification-payload-form stack" data-testid={testId} noValidate onReset={event => event.preventDefault()}>
+  return <FormState.Provider value={state}><form ref={ref} action={dispatch} className="qualification-payload-form stack" data-testid={testId} noValidate onReset={event => event.preventDefault()}><CampaignFields/>
     <input type="hidden" name="payload" value={JSON.stringify(payload)}/>
     {children}<Feedback state={state}/><button className="button primary" type="submit" disabled={pending}>{pending ? 'Enregistrement…' : submit}<Check size={15} aria-hidden="true"/></button>
   </form></FormState.Provider>;
@@ -100,7 +101,7 @@ function appendNotes(existing: string, notes: string): string {
   return !notes || existing.includes(notes) ? existing : [existing, notes].filter(Boolean).join('\n');
 }
 
-export function QualificationForm({ company, settings, today }: QualificationProps) {
+export function QualificationForm({ company, settings, today, suggestedFinding }: QualificationProps & {suggestedFinding?:{note:string;sourceUrl:string;analyzedOn:string}}) {
   const stored = company.qualification ?? emptyQualification();
   const [answers, setAnswers] = useState<QualificationAnswers>(stored.answers);
   const [confirmTarget, setConfirmTarget] = useState(false);
@@ -131,7 +132,7 @@ export function QualificationForm({ company, settings, today }: QualificationPro
   }
   return <section className="panel section-panel qualification-block" aria-labelledby="qualification-heading">
     <div className="section-title"><span className="section-number">01</span><div><h2 id="qualification-heading">Qualification</h2><p className="muted">Cinq réponses vérifiées pour choisir votre prochaine conversation.</p></div></div>
-    <PayloadForm action={saveQualificationAction.bind(null, company.id)} payload={{ answers }} submit="Enregistrer la qualification" testId="qualification-form">
+    <>{suggestedFinding&&<button type="button" className="button secondary" onClick={()=>change('problem',{description:answers.problem.description||suggestedFinding.note,proofUrl:answers.problem.proofUrl||suggestedFinding.sourceUrl,observedOn:answers.problem.observedOn||suggestedFinding.analyzedOn})}>Reprendre le constat retenu comme preuve</button>}<PayloadForm action={saveQualificationAction.bind(null, company.id)} payload={{ answers }} submit="Enregistrer la qualification" testId="qualification-form">
       <input type="hidden" name="expectedTarget" value={currentTargetKey}/>
       <TargetReminder target={target}/>
       <p className="qual-known-company"><strong>Informations de la fiche</strong>{company.business || 'Activité non renseignée'} · {company.city || 'Zone non renseignée'}</p>
@@ -180,7 +181,7 @@ export function QualificationForm({ company, settings, today }: QualificationPro
       })}
       <div className="qual-draft-progress"><strong>Aperçu du brouillon</strong>{evaluation ? evaluation.completedCount + ' critères sur 5 complets · ' + evaluation.confirmedPoints + ' points confirmés.' : 'Vérifiez le format des liens et des dates avant de calculer ce brouillon.'}</div>
       <p className="field-help">Vous pouvez enregistrer sans tout compléter. Une inconnue reste à vérifier ; elle ne vaut pas zéro. Les points et la priorité sont recalculés à l’enregistrement.</p>
-    </PayloadForm>
+    </PayloadForm></>
   </section>;
 }
 
@@ -251,7 +252,7 @@ export function AfterExchangeForm({ company }: { company: QualifiedCompany }) {
         <section className="exchange-next-step stack"><h3>Prochaine étape convenue</h3><div className="form-grid"><TextField name="nextStep.description" label="Description de l’étape convenue" value={exchange.nextStep.description} onChange={description => change('nextStep', { ...exchange.nextStep, description })}/><TextField name="nextStep.date" label="Date convenue (facultative)" type="date" value={exchange.nextStep.date} onChange={date => change('nextStep', { ...exchange.nextStep, date })}/></div><label className="check-label"><input type="checkbox" name="nextStep.accepted" checked={exchange.nextStep.accepted} onChange={event => change('nextStep', { ...exchange.nextStep, accepted: event.target.checked })}/>Cette étape a été explicitement acceptée par l’interlocuteur.</label><p className="field-help">Une tâche interne ou un rendez-vous réservé ne suffit pas à confirmer un besoin. L’enregistrement ne crée aucune relance.</p></section>
         <div className="exchange-evaluation"><span className="field-help">Lecture du brouillon</span><strong>{draftEvaluation.label}</strong>{!!draftEvaluation.blockers.length && <ul>{draftEvaluation.blockers.map(item => <li key={item}>{item}</li>)}</ul>}{!!draftEvaluation.missing.length && <details><summary>Ce qui reste à clarifier<ChevronDown size={13} aria-hidden="true"/></summary><ul>{draftEvaluation.missing.map(item => <li key={item}>{item}</li>)}</ul></details>}{!!draftEvaluation.toVerify.length && <ul className="field-help">{draftEvaluation.toVerify.map(item => <li key={item}>{item}</li>)}</ul>}</div>
       </PayloadForm>
-      {storedEvaluation.possible && company.stage !== 'Opportunité qualifiée' && <form action={opportunityDispatch} className="exchange-qualify-action"><button type="submit" className="button secondary" disabled={qualifying || changed}>{qualifying ? 'Vérification…' : 'Passer à Opportunité qualifiée'}<Check size={15} aria-hidden="true"/></button><p className="field-help">{changed ? 'Enregistrez d’abord les informations modifiées.' : 'Cette action explicite vérifie les faits enregistrés avant de changer l’étape.'}</p><Feedback state={opportunityState}/></form>}
+      {storedEvaluation.possible && company.stage !== 'Opportunité qualifiée' && <form action={opportunityDispatch} className="exchange-qualify-action"><CampaignFields/><button type="submit" className="button secondary" disabled={qualifying || changed}>{qualifying ? 'Vérification…' : 'Passer à Opportunité qualifiée'}<Check size={15} aria-hidden="true"/></button><p className="field-help">{changed ? 'Enregistrez d’abord les informations modifiées.' : 'Cette action explicite vérifie les faits enregistrés avant de changer l’étape.'}</p><Feedback state={opportunityState}/></form>}
       {company.stage === 'Opportunité qualifiée' && !storedEvaluation.reevaluationRequired && <p className="form-success"><Check size={15} aria-hidden="true"/>L’opportunité est qualifiée. Le score avant contact reste distinct.</p>}
     </div>
   </details>;

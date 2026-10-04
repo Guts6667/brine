@@ -32,6 +32,18 @@ Le barème fixe `pickles-v1` additionne l’adéquation (20/10/0), le problème 
 
 Un changement récent doit dater de 0 à 90 jours avant sa vérification. Un déclencheur ancien demande une nouvelle vérification sans retrait silencieux de points. Une opposition, une cible non validée, un problème non établi ou un contact absent bloque les suggestions, quel que soit le score. Les étapes et l’archivage restent manuels.
 
+## Recherche et analyse automatiques
+
+Dans **Prospects → Trouver des entreprises**, rechercher par commune et activité déclarée via l’API publique Recherche d’entreprises, sans compte ni clé API. La commune est résolue avec l’API Découpage administratif. Choisir une activité proposée ou des codes NAF, puis ajouter les résultats voulus. Les établissements fermés sont écartés ; le compteur du registre peut donc dépasser le nombre de résultats affichés. Les noms de communes ambigus demandent un code INSEE. L’import ajoute des fiches « À étudier » et conserve la source, le SIREN/SIRET et la date dans l’historique. Il rapproche les doublons sans remplacer les fiches, archives ou oppositions existantes. Le registre ne fournit pas les sites ou les coordonnées : renseigner le site officiel sur la fiche avant son analyse.
+
+Sur une fiche, **Analyser le site** consulte le HTML public de l’accueil et de deux pages de contact ou de prestations au maximum. Les règles `robots.txt` sont respectées ; les adresses privées, redirections dangereuses, pages trop volumineuses et délais excessifs sont bloqués. Aucune exécution JavaScript : le rendu visuel, les formulaires et certains contenus dynamiques peuvent demander une vérification supplémentaire. L’outil relève les canaux de contact publiés, la balise viewport, les liens d’action/prestations et les liens importants répondant 404, 410 ou en erreur serveur. Chaque constat conserve sa source et sa date. Un copyright ancien ne prouve pas l’âge du site.
+
+**Tester sur mobile (PageSpeed)** appelle le service Google pour un test de chargement mobile simulé et des vérifications Lighthouse. La variable serveur facultative `PAGESPEED_API_KEY` permet d’utiliser une clé Google lorsque le quota sans clé est indisponible. Le résultat décrit ce test ponctuel ; il ne prouve ni un mauvais rendu sur tous les téléphones, ni une perte de clients. Les mesures, sources et angles d’approche proposés peuvent être enregistrés dans l’historique.
+
+Sélectionner explicitement les coordonnées et constats à conserver. Seuls les champs de contact vides sont complétés ; les constats et angles restent dans les notes. Les réponses de qualification et les étapes commerciales restent à confirmer. Une analyse signée expire après vingt minutes ; toute modification de la fiche demande une nouvelle analyse avant l’application. Les contacts et leur provenance sont enregistrés dans une même transaction, en local comme sur Turso.
+
+**Tests IA** propose trois questions à copier dans ChatGPT, Claude ou un autre outil avec recherche web. Les tests de ces applications restent manuels : conserver les réponses, l’interface, la date, les compteurs et un lien de preuve. Un angle peut décrire l’absence de recommandation dans un panel documenté ; il ne prétend jamais à une absence générale de visibilité. Un appel à une API de modèle ne reproduit pas automatiquement la recherche d’une application. Aucun message de prospection n’est envoyé.
+
 Le volet replié **Après l’échange** distingue besoin, calendrier, budget, décision, capacité à avancer, solution et prochaine étape acceptée. Il ne crée aucun second score. La transition explicite **Passer à Opportunité qualifiée** exige un besoin reconnu, une solution pertinente, un chemin de décision identifié et une étape acceptée, sans opposition ni blocage confirmé. Un budget inconnu reste à vérifier. Une contradiction ultérieure demande une réévaluation et conserve l’historique.
 
 SQLite conserve les données dans `data/brine.sqlite`, avec les fichiers associés `-wal` et `-shm` pendant l’utilisation. Si une installation possède déjà `data/pickles.sqlite` et aucune base `data/brine.sqlite`, Brine continue d’utiliser cette base existante. Les migrations versionnées se trouvent dans `migrations/` et s’appliquent au démarrage. Le dossier des données est exclu de Git et de `public/`. Pour choisir une autre base :
@@ -46,7 +58,7 @@ L’archivage est réversible. **Ne plus contacter** est distinct de l’étape 
 
 ## Sauvegarde et restauration
 
-Dans **Données et préférences**, télécharger la sauvegarde JSON complète : entreprises, contact principal, notes et échanges, historique, prochaines actions, oppositions, relevés IA et cible. Le fichier utilise le schéma v2, incluant qualification, observations, cible utilisée et après-échange. Les sauvegardes v1 restent importables : les anciennes réponses sont conservées sans déduction vers les nouveaux critères, qui démarrent à « À vérifier ».
+Dans **Données et préférences**, télécharger la sauvegarde JSON complète : entreprises, contact principal, notes et échanges, historique, prochaines actions, oppositions, relevés IA et cible. Le fichier utilise le schéma v3, incluant campagnes, lots, qualification, observations, cible utilisée et après-échange. Les sauvegardes v1 et v2 restent importables : les anciennes réponses sont conservées sans déduction vers les nouveaux critères, qui démarrent à « À vérifier ».
 
 Pour restaurer, choisir un JSON de 5 Mo maximum, vérifier l’aperçu des quantités, puis confirmer le remplacement. Tous les éléments et leurs relations sont validés avant l’écriture. Le remplacement est atomique. Une sauvegarde de l’état précédent est créée dans `data/backups/` en local (ou `backups/` à côté de la base choisie). En ligne, cette copie privée est enregistrée dans Turso au sein de la même transaction et se télécharge depuis **Données et préférences**.
 
@@ -93,6 +105,38 @@ Les tests de stockage utilisent des bases temporaires. Playwright démarre sur `
 
 ## Limites de la V1
 
-Un seul utilisateur et un seul contact principal par entreprise. Aucun envoi d’email ou autre contact externe, synchronisation Gmail, scraping, appel d’API IA, audit automatique, PDF, facturation, calendrier complexe, import Excel universel ou travail en équipe. Les liens enregistrés ne sont pas téléchargés automatiquement. Les notes sont affichées comme du texte. En ligne, les données sont hébergées dans une base Turso en Europe et traitées par Vercel. En local, elles restent sur cet ordinateur.
+Un seul utilisateur et un seul contact principal par entreprise. Aucun envoi d’email ou autre contact externe, synchronisation Gmail, appel d’API IA, audit visuel automatisé, PDF, facturation, calendrier complexe, import Excel universel ou travail en équipe. La recherche et les audits sont déclenchés explicitement. Les lots lancés depuis une campagne parcourent les sites en arrière-plan, dans les limites configurées. Les notes sont affichées comme du texte. En ligne, les données sont hébergées dans une base Turso en Europe et traitées par Vercel. En local, elles restent sur cet ordinateur ; les recherches et audits transmettent la requête ou l’URL au service sollicité.
 
 Références techniques : [hébergement local Next.js](https://nextjs.org/docs/app/guides/self-hosting), [CLI Next.js et nom d’hôte](https://nextjs.org/docs/app/api-reference/cli/next), [cas d’usage SQLite](https://www.sqlite.org/whentouse.html).
+
+## Campagnes et lots d’analyse
+
+La rubrique **Campagnes** permet de définir une cible, une offre et des exclusions pour chaque campagne. Les entreprises possèdent une fiche commune ; chaque participation conserve sa qualification, son étape commerciale, son angle et sa prochaine action. Les oppositions bloquent toutes les campagnes. Les données antérieures sont rattachées une seule fois à **Prospection initiale**.
+
+Depuis une campagne, lancez un lot de 10 ou 20 entreprises, puis examinez les faits, les preuves datées et les contacts proposés. **Retenir** rattache l’entreprise à la campagne et conserve uniquement votre sélection. Une entreprise peut participer à plusieurs campagnes sans duplication de son identité. L’onglet **Prospects** permet aussi d’analyser une sélection d’entreprises déjà connues.
+
+Les sites sont recherchés dans la source ADEME RGE (SIRET exact), puis dans OpenStreetMap en complément. La couverture est partielle : un site inconnu ou ambigu reste à confirmer. Les exclusions textuelles, l’impression visuelle de site ancien et la qualification commerciale demandent une vérification humaine. PageSpeed peut être indisponible sans faire perdre les résultats HTML. Les tests IA restent facultatifs et manuels.
+
+### Exécution durable
+
+Le Workflow SDK `workflow@5.0.1` orchestre les étapes. Un seul lot est traité à la fois ; les autres restent en file. Deux entreprises peuvent recevoir leur audit HTML en parallèle, et les audits mobiles sont séquentiels. Les réservations, versions et résultats sont enregistrés dans la base ; une suspension, une annulation ou une restauration invalide les anciens traitements.
+
+Pour l’exécution en ligne après fermeture de l’ordinateur :
+
+- Utiliser les ressources **Vercel Workflows sur Hobby (gratuit)**, dans les quotas du forfait. Pro n’est pas requis pour lancer un lot.
+- Conserver `TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN` sur le serveur.
+- Configurer `CRON_SECRET` avec une valeur aléatoire ; le Cron de secours authentifié de `vercel.json` réconcilie les lots une fois par jour, entre 03 h et 04 h UTC, conformément au forfait Hobby. Les lancements explicites et le passage au lot suivant se font immédiatement, sans attendre ce Cron. En cas de lancement manqué, utiliser « Relancer la prise en charge » ; pour un traitement interrompu, suspendre puis reprendre le lot.
+- Configurer `PAGESPEED_API_KEY` pour l’audit mobile, sans activer de facturation externe.
+- Garder les anciens déploiements tant qu’ils exécutent des lots. Un rollback de l’interface n’annule pas un workflow : suspendre le lot dans Brine.
+
+Les quotas Hobby Workflows incluent actuellement 50 000 événements et 1 Go écrit par mois. Le calcul des fonctions et les files consomment aussi leurs quotas ; les traces du SDK sont conservées un jour après la fin du traitement, tandis que les résultats Brine restent dans Turso. Références : [Workflows](https://vercel.com/docs/workflows/pricing) et [Cron Hobby](https://vercel.com/docs/cron-jobs/usage-and-pricing). La disponibilité sur ce projet reste à vérifier après déploiement.
+
+En développement, le moteur local du SDK nécessite que le serveur et l’ordinateur continuent de fonctionner. Son état `.workflow-data/` est privé et ignoré par Git. Les routes `/.well-known/workflow/` sont réservées au SDK ; toutes les commandes utilisateur restent authentifiées et vérifient l’origine. La route de réconciliation exige exclusivement son secret serveur.
+
+La sauvegarde **v3** inclut campagnes, participations, rapports, décisions, lots et identités. Les formats v1/v2 restent acceptés. Les traitements inachevés sont restaurés en pause ; aucune restauration ne déclenche une recherche. Les snapshots précédant une restauration contiennent aussi les campagnes.
+
+### Vérification
+
+`npm run test` couvre les contrats SQLite/libSQL, la migration et l’isolation entre campagnes, les réservations, les oppositions et les restaurations. `npm run build` vérifie également la compilation des workflows. `npm run test:e2e` utilise le build de production et une base isolée : exécuter le build auparavant. Le parcours de campagne lance le SDK réel avec des sources déterministes, quitte la page puis retrouve les résultats.
+
+`BRINE_TEST_FIXTURES=1` est réservé au serveur navigateur local de test ; ce mode est désactivé sur Vercel. Il ne fournit aucun endpoint public de simulation. Les dépendances transitives `devalue` et `nanoid` du SDK sont remplacées par leurs versions correctives compatibles dans `package.json`.

@@ -1,3 +1,4 @@
+import { campaignBackupSchema, checkCampaignRelations } from './campaign-backup';
 import { z } from 'zod';
 import { stages, type AiTest, type Company, type Contact } from './types';
 import { emptyQualification, qualificationDataSchema } from './qualification';
@@ -199,7 +200,9 @@ const legacyBackupSchema = z.object({
 const currentBackupSchema = z.object({
   ...backupFields, schemaVersion: z.literal(2), companies: z.array(companySchema), settings: z.object(fullSettingsFields).strict(),
 }).strict();
-export const backupSchema = z.discriminatedUnion('schemaVersion', [legacyBackupSchema, currentBackupSchema], { error: 'Cette sauvegarde doit utiliser le format Brine version 1 ou 2.' }).superRefine((backup, context) => {
+const campaignVersionSchema = currentBackupSchema.extend({schemaVersion:z.literal(3),campaignData:campaignBackupSchema}).strict();
+export const backupSchema = z.discriminatedUnion('schemaVersion', [legacyBackupSchema, currentBackupSchema, campaignVersionSchema], { error: 'Cette sauvegarde doit utiliser le format Brine version 1, 2 ou 3.' }).superRefine((backup, context) => {
+  checkCampaignRelations(backup, message => context.addIssue({code:'custom',message}));
   const seen = new Set<string>();
   const registerId = (id: string, path: (string | number)[]) => {
     if (seen.has(id)) context.addIssue({ code: 'custom', path, message: 'Identifiant dupliqué dans la sauvegarde.' });

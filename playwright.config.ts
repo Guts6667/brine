@@ -20,9 +20,9 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'node e2e/reset-database.mjs && npm run dev -- --port 3100',
+    command: 'node e2e/reset-database.mjs && npm run start -- --port 3100',
     url: 'http://127.0.0.1:3100',
-    env: { BRINE_DB_PATH: databasePath, NEXT_TELEMETRY_DISABLED: '1' },
+    env: { BRINE_DB_PATH: databasePath, NEXT_TELEMETRY_DISABLED: '1', BRINE_TEST_FIXTURES:'1', WORKFLOW_LOCAL_DATA_DIR:path.resolve('test-results/workflows'), WORKFLOW_LOCAL_BASE_URL:'http://127.0.0.1:3100' },
     reuseExistingServer: false,
     timeout: 120_000,
   },

@@ -6,6 +6,8 @@ import { isCloudStorage } from '@/lib/db';
 import { isAuthEnabled, SESSION_COOKIE_NAME, verifySession } from '@/lib/auth';
 import { logoutAction } from '@/app/connexion/actions';
 import './globals.css';
+import './automation.css';
+import './campaigns.css';
 export const metadata:Metadata={title:{default:'Brine',template:'%s · Brine'},description:'Votre espace personnel de prospection, un contact à la fois.'};
 export const runtime='nodejs';
 export const dynamic='force-dynamic';

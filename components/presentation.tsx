@@ -3,6 +3,7 @@ import { ArrowUpRight, CalendarDays, CircleCheck, CircleHelp, Sprout } from 'luc
 import type { Company, Settings } from '@/lib/types';
 import { dueStatus, formatDate } from '@/lib/domain';
 import { evaluateQualification } from '@/lib/qualification';
+import { CampaignProvider } from './campaign-context';
 import { ActionButtons, PlanAction } from './forms';
 export function QualificationBadge({company,settings,today}:{company:Company;settings:Settings;today:string}) {
   const q=evaluateQualification(company,settings,today);
@@ -14,6 +15,6 @@ export function ActionDate({date}:{date:string}) {
 }
 export function TodayRow({company:c,settings,today}:{company:Company;settings:Settings;today:string}) {
   const q=evaluateQualification(c,settings,today);
-  return <article className="today-row"><div className="company-monogram" aria-hidden="true">{c.name.slice(0,2).toUpperCase()}</div><div className="today-company"><Link href={`/prospects/${c.id}`} className="company-name">{c.name}</Link><p>{q.reasons.slice(0,3).join(' · ')||q.nextInformation}</p><span className="small muted">{q.score!==null?`${q.score}/100 · ${q.priority}`:q.evaluated?`${q.confirmedPoints} points confirmés · ${q.completedCount}/5 critères`:'Non évalué'} · {[c.city,c.business].filter(Boolean).join(' · ')||'Informations à compléter'}</span></div><div className="today-action">{c.nextAction?<><strong>{c.nextAction.text}</strong><ActionDate date={c.nextAction.date}/></>:<><span className="small muted">Pas encore d’action planifiée</span><PlanAction company={c} compact/></>}</div><div className="today-row-controls"><Link href={`/prospects/${c.id}`} className="open-link">Ouvrir la fiche<ArrowUpRight size={14}/></Link>{c.nextAction&&<ActionButtons company={c}/>}</div></article>;
+  return <CampaignProvider id={c.campaignId||'initial'} revision={c.participationRevision}><article className="today-row"><div className="company-monogram" aria-hidden="true">{c.name.slice(0,2).toUpperCase()}</div><div className="today-company"><Link href={`/prospects/${c.id}${c.campaignId?`?campagne=${c.campaignId}`:''}`} className="company-name">{c.name}</Link><p className="small muted">{c.campaignName}</p><p>{q.reasons.slice(0,3).join(' · ')||q.nextInformation}</p><span className="small muted">{q.score!==null?`${q.score}/100 · ${q.priority}`:q.evaluated?`${q.confirmedPoints} points confirmés · ${q.completedCount}/5 critères`:'Non évalué'} · {[c.city,c.business].filter(Boolean).join(' · ')||'Informations à compléter'}</span></div><div className="today-action">{c.nextAction?<><strong>{c.nextAction.text}</strong><ActionDate date={c.nextAction.date}/></>:<><span className="small muted">Pas encore d’action planifiée</span><PlanAction company={c} compact/></>}</div><div className="today-row-controls"><Link href={`/prospects/${c.id}${c.campaignId?`?campagne=${c.campaignId}`:''}`} className="open-link">Ouvrir la fiche<ArrowUpRight size={14}/></Link>{c.nextAction&&<ActionButtons company={c}/>}</div></article></CampaignProvider>;
 }
 export function EmptyIcon() {return <div className="empty-icon"><Sprout size={34} strokeWidth={1.4}/></div>;}

@@ -17,6 +17,8 @@ test.describe('accès privé', () => {
       await expect(page.getByRole('button', { name: 'Déconnexion', exact: true })).toHaveCount(0);
     }
 
+    for(const route of ['/api/campaign-runs/unknown','/api/campaign-runs/reconcile'])expect((await page.request.get(route)).status()).toBe(401);
+    const invalidWorkflow=await page.request.post('/.well-known/workflow/v1/flow',{data:{runId:'unknown'}});expect(invalidWorkflow.status()).toBeGreaterThanOrEqual(400);
     const anonymousBackup = await page.request.get('/api/backup');
     expect(anonymousBackup.status()).toBe(401);
     expect(await anonymousBackup.text()).toBe('Connexion requise.');
@@ -48,7 +50,7 @@ test.describe('accès privé', () => {
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Nom de l’entreprise', { exact: false }).fill(companyName);
     await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
-    await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1$/);
+    await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
     await expect(page.getByRole('heading', { name: companyName, exact: true })).toBeVisible();
     const companyId = new URL(page.url()).pathname.split('/').at(-1)!;
 

@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, Building2, Database, ArrowUpRight } from 'lucide-react';
+import { CalendarDays, Building2, Target, Database, ArrowUpRight } from 'lucide-react';
 export function Navigation({cloud=false}:{cloud?:boolean}) {
   const path = usePathname();
   return <aside className="sidebar">
@@ -9,6 +9,7 @@ export function Navigation({cloud=false}:{cloud?:boolean}) {
     <div className="nav-caption">MON ESPACE</div>
     <nav aria-label="Navigation principale">
       <Link href="/" className={`nav-link ${path === '/' ? 'active' : ''}`} aria-current={path === '/' ? 'page' : undefined}><CalendarDays size={19}/>Aujourd’hui</Link>
+      <Link href="/campagnes" className={`nav-link ${path.startsWith('/campagnes') ? 'active' : ''}`} aria-current={path.startsWith('/campagnes') ? 'page' : undefined}><Target size={19}/>Campagnes</Link>
       <Link href="/prospects" className={`nav-link ${path.startsWith('/prospects') ? 'active' : ''}`} aria-current={path.startsWith('/prospects') ? 'page' : undefined}><Building2 size={19}/>Prospects</Link>
     </nav>
     <div className="sidebar-bottom"><div className="personal-note"><span className="small-leaf">↗</span><p>Un contact à la fois.<br/><strong>À votre rythme.</strong></p></div>

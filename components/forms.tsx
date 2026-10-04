@@ -1,4 +1,5 @@
 'use client';
+import { CampaignFields } from './campaign-context';
 import { createContext, useActionState, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode, HTMLInputTypeAttribute } from 'react';
 import { Plus, X, ArrowRight, Check, CalendarDays, Pencil, MessageSquare, StickyNote, ChevronDown, Archive, ShieldOff, RotateCcw, Download, Upload } from 'lucide-react';
@@ -19,7 +20,7 @@ function ActionForm({action,children,submit='Enregistrer',className='',onSuccess
   const formRef=useRef<HTMLFormElement>(null);
   useEffect(()=>{if(state.fields){const fields=formRef.current?.querySelectorAll('[aria-invalid="true"]');fields?.forEach(field=>{let node:HTMLElement|null=field.parentElement;while(node){if(node instanceof HTMLDetailsElement)node.open=true;node=node.parentElement;}});(fields?.[0] as HTMLElement|undefined)?.focus();}},[state]);
   useEffect(()=>{ if(state!==previous.current && state.ok) onSuccess?.(); previous.current=state; },[state,onSuccess]);
-  return <StateContext.Provider value={state}><form ref={formRef} action={dispatch} className={className} onReset={e=>e.preventDefault()}>
+  return <StateContext.Provider value={state}><form ref={formRef} action={dispatch} className={className} onReset={e=>e.preventDefault()}><CampaignFields/>
     {children}
     {state.duplicates && <div className="duplicate-warning"><strong>Doublon possible</strong><ul>{state.duplicates.map(c=><li key={c.id}><Link href={`/prospects/${c.id}`}>{c.name}</Link></li>)}</ul><label className="check-label"><input type="checkbox" name="allowDuplicate" value="yes"/>Créer quand même une fiche distincte</label></div>}
     <Feedback state={state}/><button type="submit" className="button primary" disabled={pending}>{pending?'Enregistrement…':submit}<Check size={15}/></button>
@@ -50,7 +51,7 @@ export function AddCompany({settings}:{settings:Settings}) {
   </Modal>;
 }
 export function CompanyForm({company:c}:{company:Company}) {
-  return <ActionForm action={saveCompanyAction.bind(null,c.id)} submit="Enregistrer la fiche" className="company-form">
+  return <ActionForm action={saveCompanyAction.bind(null,c.id)} submit="Enregistrer la fiche" className="company-form"><input type="hidden" name="companyUpdatedAt" value={c.updatedAt}/>
     <details className="panel secondary-details"><summary><Pencil size={16}/>Informations et étape de l’entreprise<ChevronDown size={16}/></summary><div className="details-body form-grid"><Field name="name" label="Nom de l’entreprise" value={c.name} required/><Field name="website" label="Site web" value={c.website}/><Field name="city" label="Ville" value={c.city}/><Field name="business" label="Activité" value={c.business}/><Field name="stage" label="Étape commerciale" value={c.stage}>{stages.map(s=><option key={s}>{s}</option>)}</Field></div></details>
     {(c.targetFit!=='unknown'||c.problemFound!=='unknown'||c.contactAvailable!=='unknown'||c.observation||c.trigger)&&<details className="panel secondary-details"><summary>Ancienne qualification<ChevronDown size={16}/></summary><div className="details-body stack"><p className="field-help">Ces anciennes réponses sont conservées comme historique. Confirmez les cinq critères du nouveau barème séparément.</p><p className="small">Cible : {c.targetFit==='unknown'?'À vérifier':c.targetFit==='yes'?'Oui':'Non'} · Problème : {c.problemFound==='unknown'?'À vérifier':c.problemFound==='yes'?'Oui':'Non'} · Contact : {c.contactAvailable==='unknown'?'À vérifier':c.contactAvailable==='yes'?'Oui':'Non'}</p>{c.observation&&<p className="plain-text">{c.observation}</p>}{c.observedOn&&<p className="small muted">Observation du {c.observedOn}</p>}{c.proofUrl&&<a href={c.proofUrl} target="_blank" rel="noopener noreferrer" className="open-link">Consulter la preuve<ArrowRight size={13}/></a>}{c.trigger&&<p className="plain-text">Pourquoi maintenant : {c.trigger}</p>}</div></details>}
     <section className="panel section-panel" aria-labelledby="contact-heading"><div className="section-title"><span className="section-number">01</span><div><h2 id="contact-heading">Contact</h2><p className="muted">Un contact principal et ses canaux professionnels.</p></div></div><div className="form-grid"><Field name="contact.name" label="Nom du contact" value={c.contact.name}/><Field name="contact.role" label="Fonction" value={c.contact.role}/><Field name="contact.email" label="Email professionnel" type="email" value={c.contact.email}/><Field name="contact.phone" label="Téléphone professionnel" type="tel" value={c.contact.phone}/></div>
@@ -67,7 +68,7 @@ export function PlanAction({company:c,compact=false}:{company:Company;compact?:b
 }
 export function ActionButtons({company:c}:{company:Company}) {
   const [state,dispatch,pending]=useActionState(completeAction.bind(null,c.id),{});
-  return <div className="action-controls"><div className="button-row"><form action={dispatch}><input type="hidden" name="expectedId" value={c.nextAction?.id??''}/><button type="submit" className="button secondary small-button" disabled={pending}><Check size={16}/>{pending?'En cours…':'Fait'}</button></form>
+  return <div className="action-controls"><div className="button-row"><form action={dispatch}><CampaignFields/><input type="hidden" name="expectedId" value={c.nextAction?.id??''}/><button type="submit" className="button secondary small-button" disabled={pending}><Check size={16}/>{pending?'En cours…':'Fait'}</button></form>
     <Modal title="Reporter l’action" button="Reporter" buttonClass="button text-button small-button" icon={<RotateCcw size={14}/>}><ActionForm action={postponeAction.bind(null,c.id)} submit="Confirmer le report" className="stack"><input type="hidden" name="expectedId" value={c.nextAction?.id??''}/><p className="muted">{c.nextAction?.text}</p><Field name="date" label="Nouvelle date" type="date" value={c.nextAction?.date} help="Effacez la date pour laisser l’action à planifier."/></ActionForm></Modal></div><Feedback state={state}/>{state.ok&&<PlanAction company={{...c,nextAction:null}} compact/>}</div>;
 }
 export function AddActivity({id}:{id:string}) {

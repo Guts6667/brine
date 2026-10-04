@@ -4,7 +4,8 @@ import type { Backup, Company } from '../lib/types';
 async function backup(request: APIRequestContext): Promise<Backup> {
   const response = await request.get('/api/backup');
   expect(response.ok()).toBeTruthy();
-  return response.json();
+  const data:Backup=await response.json();
+  return {...data,companies:data.companies.map(c=>{const p=data.campaignData?.participations.find(p=>p.companyId===c.id&&p.campaignId==='initial');return p?{...c,stage:p.stage,archived:p.archived,nextAction:c.oppositionActive?null:p.nextAction,qualification:{...p.qualification,observations:c.qualification!.observations}}:c;})};
 }
 
 async function savedCompany(request: APIRequestContext, id: string): Promise<Company> {
@@ -17,7 +18,7 @@ async function createCompany(page: Page, name: string): Promise<string> {
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel(/^Nom de l’entreprise/).fill(name);
   await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
-  await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1$/);
+  await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   return new URL(page.url()).pathname.split('/').at(-1)!;
 }
@@ -149,10 +150,11 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
 
   await page.goto('/prospects?filter=ready');
   await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
-  await page.goto('/sauvegarde');
-  await page.getByLabel('Zone géographique', { exact: true }).fill('Sète — cible E2E modifiée');
-  await page.getByRole('button', { name: 'Enregistrer la cible', exact: true }).click();
-  await expect.poll(async () => (await backup(request)).settings.targetCity).toBe('Sète — cible E2E modifiée');
+  await page.goto('/campagnes/initial');
+  await page.getByText('Modifier la cible et l’offre', {exact:true}).click();
+  await page.getByLabel('Commune', { exact: true }).fill('Sète — cible E2E modifiée');
+  await page.getByRole('button', { name: 'Enregistrer la campagne', exact: true }).click();
+  await expect.poll(async () => (await backup(request)).campaignData!.campaigns.find(c=>c.id==='initial')!.targetCity).toBe('Sète — cible E2E modifiée');
   await page.goto(`/prospects/${id}`);
   await expect(summary).toContainText('80/100');
   await expect(summary).toContainText('Adéquation à revérifier');
