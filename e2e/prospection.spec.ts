@@ -71,7 +71,7 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   const id = await createCompany(page, name);
   let saved = (await backup(request)).companies.find(company => company.id === id)!;
   expect(saved).toMatchObject({ city: '', business: '', targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', stage: 'À étudier' });
-  await expect(page.getByTestId('qualification-summary')).toContainText('Non évalué');
+  await expect(page.getByTestId('qualification-summary')).toContainText('0/100');
   for (const question of questions) await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();
 
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
@@ -84,8 +84,8 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await answer(page, 4, 'Canal professionnel générique de l’entreprise');
   await page.getByRole('checkbox', { name: 'Je confirme cette évaluation par rapport à la cible actuelle.', exact: true }).check();
   await saveQualification(page);
-  await expect(page.getByTestId('qualification-summary')).toContainText('25 points confirmés');
-  await expect(page.getByTestId('qualification-summary')).toContainText('4 critères sur 5 renseignés');
+  await expect(page.getByTestId('qualification-summary')).toContainText('25/100');
+  await expect(page.getByTestId('qualification-summary')).toContainText('4/5 critères validés');
   await expect(page.getByRole('group', { name: questions[1], exact: true }).getByRole('radio', { name: 'Un problème concret vérifié', exact: true })).toBeChecked();
 
   await page.getByLabel('Le problème concret observé', { exact: true }).fill('Le formulaire de devis ne permet pas d’envoyer la demande.');
@@ -107,8 +107,8 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
   await page.getByLabel('Email professionnel', { exact: true }).fill('');
   await saveCompany(page);
-  await expect(page.getByTestId('qualification-summary')).toContainText('35 points confirmés');
-  await expect(page.getByTestId('qualification-summary')).toContainText('4 critères sur 5 renseignés');
+  await expect(page.getByTestId('qualification-summary')).toContainText('35/100');
+  await expect(page.getByTestId('qualification-summary')).toContainText('4/5 critères validés');
   await expect(page.getByTestId('qualification-summary').getByText('À vérifier', { exact: true }).first()).toBeVisible();
   saved = (await backup(request)).companies.find(company => company.id === id)!;
   expect(saved.qualification!.answers.access.answer).toBe('generic');
@@ -225,7 +225,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
 
   await page.goto('/sauvegarde');
   const downloadPending = page.waitForEvent('download');
-  await page.getByRole('link', { name: 'Télécharger une sauvegarde JSON', exact: true }).click();
+  await page.getByRole('button', { name: 'Télécharger la sauvegarde complète (ZIP)', exact: true }).click();
   const download = await downloadPending;
   const downloadedPath = await download.path();
   expect(downloadedPath).toBeTruthy();
@@ -237,7 +237,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
   await expect(page.getByText('Ne plus contacter', { exact: true }).first()).toBeVisible();
 
   await page.goto('/sauvegarde');
-  await page.getByLabel('Fichier de sauvegarde JSON', { exact: true }).setInputFiles(downloadedPath!);
+  await page.getByLabel('Sauvegarde Brine ZIP ou ancien fichier JSON', { exact: true }).setInputFiles(downloadedPath!);
   await page.getByRole('button', { name: 'Vérifier le fichier', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Aperçu du fichier', exact: true })).toBeVisible();
   await expect(page.getByText(`${prior.companies.length} entreprise(s)`, { exact: false })).toBeVisible();
@@ -256,7 +256,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
   expect(opposed.nextAction).toBeNull();
 
   // A second preview in the same page must ask for a fresh confirmation.
-  await page.getByLabel('Fichier de sauvegarde JSON', { exact: true }).setInputFiles(downloadedPath!);
+  await page.getByLabel('Sauvegarde Brine ZIP ou ancien fichier JSON', { exact: true }).setInputFiles(downloadedPath!);
   await page.getByRole('button', { name: 'Vérifier le fichier', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Aperçu du fichier', exact: true })).toBeVisible();
   const secondConfirmation = page.getByRole('checkbox', { name: 'Je confirme le remplacement des données par cette sauvegarde.', exact: true });
@@ -273,7 +273,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
     settings: { targetCity: prior.settings.targetCity, targetBusiness: prior.settings.targetBusiness },
     companies: prior.companies.map(({ qualification: _qualification, ...company }) => company),
   };
-  await page.getByLabel('Fichier de sauvegarde JSON', { exact: true }).setInputFiles({
+  await page.getByLabel('Sauvegarde Brine ZIP ou ancien fichier JSON', { exact: true }).setInputFiles({
     name: 'brine-sauvegarde-v1.json',
     mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(legacyBackup)),
@@ -284,7 +284,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Restauration terminée.' })).toBeVisible();
   const normalized = await backup(request);
-  expect(normalized.schemaVersion).toBe(4);
+  expect(normalized.schemaVersion).toBe(5);
   expect(normalized.companies).toHaveLength(prior.companies.length);
   expect(normalized.aiTests).toEqual(prior.aiTests);
   for (const activity of prior.activities) expect(normalized.activities).toContainEqual(activity);

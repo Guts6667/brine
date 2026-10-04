@@ -345,7 +345,7 @@ export class AsyncCloudStore {
     const results = await tx.batch(['SELECT * FROM activities ORDER BY createdAt, rowid', 'SELECT * FROM ai_tests ORDER BY createdAt, rowid', 'SELECT targetCity, targetBusiness, targetCompanyType, targetOffer, targetExclusions FROM settings WHERE id = 1']);
     const ready=(await tx.execute("SELECT 1 FROM campaign_meta WHERE id = 'initial'")).rows.length>0;
     const extra=ready?campaignSnapshot((await tx.batch(campaignSelects)).map(r=>r.rows as unknown as Record<string,unknown>[])):undefined;
-    return { schemaVersion: ready?4:2, ...(extra?{campaignData:extra}:{}), exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
+    return { schemaVersion: ready?5:2, ...(extra?{campaignData:extra}:{}), exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
   }
   exportBackup(): Promise<Backup> { return this.transact('read', (tx) => this.snapshot(tx)); }
 

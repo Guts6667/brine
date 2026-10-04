@@ -106,6 +106,7 @@ export interface QualificationData {
   afterExchange: AfterExchangeData;
 }
 export interface QualificationSubject {
+  qualificationEnrichment?: import('./qualification-enrichment').QualificationEnrichment;
   qualification?: QualificationData;
   contact: Contact;
   oppositionActive: boolean;

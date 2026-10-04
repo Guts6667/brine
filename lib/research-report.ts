@@ -49,6 +49,7 @@ export function getCandidateFacts(candidate: DiscoveryCandidate): ResearchFact[]
     const signature = JSON.stringify([fact.section, fact.kind, normalize(fact.text), fact.corrected || false, fact.visual || null]);
     const duplicate = bySignature.get(signature);
     if (duplicate) {
+      if(fact.review)duplicate.review={...fact.review};
       duplicate.sourceIds = unique([...duplicate.sourceIds, ...fact.sourceIds]);
       if (fact.observedOn > duplicate.observedOn) duplicate.observedOn = fact.observedOn;
       if (fact.scope && !duplicate.scope.includes(fact.scope)) duplicate.scope = unique([duplicate.scope, fact.scope]).join(' ');
@@ -259,7 +260,7 @@ export function enrichCompanyReport(base: ProspectReport | null, company: Compan
   const addManual = (key: string, section: FactSection, text: string, url = '', date = '', sentiment: ResearchFact['sentiment'] = 'neutral', scope = 'Information saisie manuellement ; la source interne documente la saisie et ne vaut pas une vérification externe.') => {
     if (!text.trim()) return;
     const sourceId = manualSource(key, text, url, date);
-    const fact: ResearchFact = { id: researchId('manual-fact', [company.id, key, text, url, date]), section, kind: 'reported', sentiment, text, sourceIds: [sourceId], observedOn: date, scope };
+    const fact: ResearchFact = { id: researchId('manual-fact', [company.id, key, text, url, date]), section, origin:key.startsWith('exchange-')||key.startsWith('contact-event-')?'exchange':key.startsWith('observation')||key.startsWith('ai-test-')?'manual_observation':'qualification', kind: 'reported', sentiment, text, sourceIds: [sourceId], observedOn: date, scope, ...(url&&date?{review:{state:'confirmed' as const,nature:'observation' as const,provenance:'manual' as const,reviewedAt:date}}:{}) };
     if (!report.facts.some(item => item.id === fact.id || (item.section === section && normalize(item.text) === normalize(text)))) report.facts.push(fact);
   };
   addManual('identity', 'identity', `${company.name} · ${company.business || 'activité à confirmer'} · ${company.city || 'commune à confirmer'}`, '', '', 'neutral');
@@ -302,7 +303,13 @@ export function enrichCompanyReport(base: ProspectReport | null, company: Compan
     addManual(`ai-test-${test.id}`, 'visibility', text, test.proofUrl, test.createdAt,
       'neutral', 'Relevé manuel de l’interface indiquée, distinct des réponses IA via API. Les compteurs décrivent uniquement les réponses consignées, jamais une absence générale.');
   }
-  for (const event of company.contactEvents || []) addManual(`contact-event-${event.id}`, 'fit', `${event.outcome === 'conversation' ? 'Échange consigné' : 'Résultat du contact'} (${event.outcome}) du ${event.date} : ${event.note || 'aucune note'}`, '', event.date);
+  // Contact history is preserved in the dossier without invalidating unchanged public proof.
+  const contactHistoryIds = new Set<string>();
+  for (const event of company.contactEvents || []) {
+    const text = `${event.outcome === 'conversation' ? 'Échange consigné' : 'Résultat du contact'} (${event.outcome}) du ${event.date} : ${event.note || 'aucune note'}`;
+    contactHistoryIds.add(researchId('manual-fact', [company.id, `contact-event-${event.id}`, text, '', event.date]));
+    addManual(`contact-event-${event.id}`, 'fit', text, '', event.date);
+  }
   for (const kind of ['email', 'phone', 'formUrl', 'profileUrl'] as const) {
     const value = company.contact[kind];
     if (!value) continue;
@@ -350,7 +357,10 @@ export function enrichCompanyReport(base: ProspectReport | null, company: Compan
     }
   }
   report.companyName = company.name;
-  report.id = researchId('report', [base?.id, company.id, company.name, company.website, company.business, company.city, report.facts, report.sources, report.contacts,
+  const identityFacts = report.facts.filter(fact => !contactHistoryIds.has(fact.id));
+  const historyOnlySources = new Set(report.facts.filter(fact => contactHistoryIds.has(fact.id)).flatMap(fact => fact.sourceIds));
+  for (const fact of identityFacts) for (const id of fact.sourceIds) historyOnlySources.delete(id);
+  report.id = researchId('report', [base?.id, company.id, company.name, company.website, company.business, company.city, identityFacts, report.sources.filter(source => !historyOnlySources.has(source.id)), report.contacts,
     campaign.targetCity, campaign.targetBusiness, campaign.targetCompanyType, campaign.targetOffer, campaign.targetExclusions, campaign.keywords]);
   report.generatedAt = new Date().toISOString();
   report.opportunities = supportedOpportunities(report, campaign);

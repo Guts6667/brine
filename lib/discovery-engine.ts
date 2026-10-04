@@ -9,6 +9,7 @@ import type { AiPanel, ProspectReport, ResearchData } from './research-types';
 import { discoverMixedProspects, enrichCandidateResearch, generateReportNarrative, getNeutralAiPanel, emptyResearch, mergeResearchData, stableResearchKey, discoveryBacklogKey, DISCOVERY_BACKLOG_LIFETIME, type DiscoveryLead, type MixedDiscoveryResult, type ResearchEnrichment } from './research-providers';
 import { buildProspectReport } from './research-report';
 import { normalizeText } from './domain';
+import { collectRenderedAudit, proposeVisualFindings } from './rendered-audit';
 
 export interface DiscoveryProviders {
   search: typeof searchCompanies; sites: typeof discoverWebsites; html: typeof analyzeSite; mobile: typeof auditMobile;
@@ -17,7 +18,7 @@ export interface DiscoveryProviders {
   panel?: (repo: CampaignRepository, run: DiscoveryRun) => Promise<AiPanel | undefined>;
   report?: (repo: CampaignRepository, run: DiscoveryRun, candidate: DiscoveryCandidate, report: ProspectReport) => Promise<string>;
 }
-export const defaultProviders: DiscoveryProviders={search:searchCompanies,sites:discoverWebsites,html:analyzeSite,mobile:auditMobile,mixed:(repo,run,deadlineAt)=>discoverMixedProspects(repo,run,fetch,deadlineAt),enrich:enrichCandidateResearch,panel:getNeutralAiPanel,report:generateReportNarrative};
+export const defaultProviders: DiscoveryProviders={search:searchCompanies,sites:discoverWebsites,html:analyzeSite,mobile:auditMobile,mixed:(repo,run,deadlineAt)=>discoverMixedProspects(repo,run,fetch,deadlineAt),enrich:enrichCandidateResearch};
 const errorText=(e:unknown)=>e instanceof Error?e.message.slice(0,1000):'Analyse indisponible.';
 export function retryable(message:string){return /429|503|502|504|timeout|timed out|délai|indisponible|fetch failed|ECONNRESET/i.test(message)&&!/robots|privée|interdit|configuration|adresse.*invalide/i.test(message);}
 function candidate(runId:string,company:DiscoveryCandidate['company'],companyId:string|null=null,website=''):DiscoveryCandidate{return {id:randomUUID(),runId,companyId,company,status:'queued',websites:[],website,html:null,mobile:null,htmlError:'',mobileError:'',attempts:{},revision:1,dedupeKey:companyId?`company:${companyId}`:/^\d{9}$/.test(company.siren)?`siren:${company.siren}`:`name:${stableResearchKey([normalizeText(company.name),normalizeText(company.city)])}`,research:emptyResearch()};}
@@ -93,11 +94,22 @@ export async function processMobile(repo:CampaignRepository,run:DiscoveryRun,id:
   await repo.guardedRun(run.id,run.owner,run.generation,epoch,async tx=>{const rows=await tx.execute({sql:'SELECT payload FROM discovery_candidates WHERE id = ?',args:[id]});const old=JSON.parse(String(rows.rows[0].payload)) as DiscoveryCandidate;if(old.revision!==c.revision)throw new Error('Résultat modifié pendant l’audit mobile.');c.revision++;await repo.putCandidate(tx,c);});return retry;
 }
 export async function processReport(repo:CampaignRepository,run:DiscoveryRun,id:string,epoch:string,providers:DiscoveryProviders=defaultProviders){
-  let c=await repo.getCandidate(id);if(['accepted','rejected','verify','queued'].includes(c.status))return;
+  let c=await repo.getCandidate(id);let renderingChanged=false;if(['accepted','rejected','verify','queued'].includes(c.status))return;
+  if(providers===defaultProviders&&c.website&&!c.attempts.renderCompleted){
+    if(/robots|interdit|privée/i.test(c.htmlError))c.research=mergeResearchData(c.research,{...emptyResearch(),warnings:['Rendu non effectué : la collecte du site est interdite ou inaccessible.']});
+    else try{const rendering=await collectRenderedAudit(repo,c.website,`candidate:${c.id}:render-v1:${stableResearchKey(c.website).slice(0,16)}`);c.research=mergeResearchData(c.research,rendering);try{const facts=await proposeVisualFindings(repo,rendering,`candidate:${c.id}:vision-v1:${stableResearchKey(rendering.facts.map(f=>f.id)).slice(0,16)}`);c.research=mergeResearchData(c.research,{...emptyResearch(),sources:rendering.sources,facts});}catch{c.research=mergeResearchData(c.research,{...emptyResearch(),warnings:['Interprétation visuelle indisponible ; captures et mesures conservées pour votre revue.']});}}catch(error){c.research=mergeResearchData(c.research,{...emptyResearch(),warnings:[errorText(error)]});}
+    c.attempts.renderCompleted=1;renderingChanged=true;
+  }
   let report=buildProspectReport(c,run.target);
-  if(c.research?.report?.id===report.id)return;
+  if(c.research?.report?.id===report.id&&!renderingChanged)return;
   if(c.research?.report){c.research={...c.research,narrative:''};report=buildProspectReport(c,run.target);}
   if(providers.report){try{const narrative=await providers.report(repo,run,c,report);if(narrative)c.research={...(c.research||emptyResearch()),narrative};}catch{c.research=mergeResearchData(c.research,{...emptyResearch(),warnings:['La synthèse IA est indisponible ; le dossier factuel est conservé.']});}report=buildProspectReport(c,run.target);}
+  if(providers===defaultProviders){
+    // Store proposal states for HTML/PageSpeed too, rather than implicitly confirming measurements.
+    const data=c.research||emptyResearch();for(const source of report.sources)if(!data.sources.some(s=>s.id===source.id))data.sources.push(source);
+    for(const fact of report.facts)if(!data.facts.some(f=>f.id===fact.id))data.facts.push({...fact,review:fact.review||{state:'proposed',nature:fact.kind==='observed'?'measurement':'observation',provenance:'render'}});
+    c.research=data;report=buildProspectReport(c,run.target);
+  }
   c.research={...(c.research||emptyResearch()),report};c.status='review';
   await repo.guardedRun(run.id,run.owner,run.generation,epoch,async tx=>{const rows=await tx.execute({sql:'SELECT payload FROM discovery_candidates WHERE id = ?',args:[id]});if(!rows.rows.length)return;const old=JSON.parse(String(rows.rows[0].payload)) as DiscoveryCandidate;if(old.revision!==c.revision)return;c.revision++;await repo.putCandidate(tx,c);});
 }

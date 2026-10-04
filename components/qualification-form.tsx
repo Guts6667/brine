@@ -3,10 +3,15 @@ import { CampaignFields } from './campaign-context';
 
 import { createContext, useActionState, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { HTMLInputTypeAttribute, ReactNode } from 'react';
-import { ArrowUpRight, Check, ChevronDown, ClipboardList, MessageSquare, Link2 } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronDown, ClipboardList, MessageSquare, Link2, Info } from 'lucide-react';
 import { saveQualificationAction, saveObservationsAction, saveAfterExchangeAction, qualifyOpportunityAction } from '@/app/actions';
 import { captureTarget, emptyQualification, evaluateQualification, evaluateAfterExchange, QUALIFICATION_RULES, OBSERVATION_LABELS, OBSERVATION_HELP, OBSERVATION_OPTIONS, AFTER_EXCHANGE_OPTIONS } from '@/lib/qualification';
+import { restoreQualificationAnswers } from './qualification-draft';
 import { manualObservationKeys } from '@/lib/qualification-types';
+import { QualificationSuggestionPanel } from './qualification-enrichment';
+import type { QualificationSuggestion } from '@/lib/qualification-enrichment';
+import type { ProspectReport } from '@/lib/research-types';
+import type { DiscoveryCandidate } from '@/lib/campaign-types';
 import type { ActionState, Company, Settings } from '@/lib/types';
 import type { AfterExchangeData, CriterionKey, DetailedObservations, ManualObservationKey, QualificationAnswers, QualificationData, TargetSnapshot } from '@/lib/qualification-types';
 
@@ -28,7 +33,7 @@ function Feedback({ state }: { state: ActionState }) {
   return <>{state.error && <p className="form-error" role="alert">{state.error}</p>}{state.ok && state.message && <p className="form-success" role="status"><Check size={15} aria-hidden="true"/>{state.message}</p>}</>;
 }
 
-function PayloadForm({ action, payload, children, submit, testId }: { action: Mutation; payload: unknown; children: ReactNode; submit: string; testId: string }) {
+function PayloadForm({ action, payload, children, submit, testId, candidateId }: { action: Mutation; payload: unknown; children: ReactNode; submit: string; testId: string; candidateId?: string }) {
   const [state, dispatch, pending] = useActionState<ActionState, FormData>(action, {});
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -40,6 +45,7 @@ function PayloadForm({ action, payload, children, submit, testId }: { action: Mu
   }, [state]);
   return <FormState.Provider value={state}><form ref={ref} action={dispatch} className="qualification-payload-form stack" data-testid={testId} noValidate onReset={event => event.preventDefault()}><CampaignFields/>
     <input type="hidden" name="payload" value={JSON.stringify(payload)}/>
+    {candidateId && <input type="hidden" name="candidateId" value={candidateId}/>}
     {children}<Feedback state={state}/><button className="button primary" type="submit" disabled={pending}>{pending ? 'Enregistrement…' : submit}<Check size={15} aria-hidden="true"/></button>
   </form></FormState.Provider>;
 }
@@ -101,7 +107,7 @@ function appendNotes(existing: string, notes: string): string {
   return !notes || existing.includes(notes) ? existing : [existing, notes].filter(Boolean).join('\n');
 }
 
-export function QualificationForm({ company, settings, today, suggestedFinding }: QualificationProps & {suggestedFinding?:{note:string;sourceUrl:string;analyzedOn:string}}) {
+export function QualificationForm({ company, settings, today, suggestedFinding, suggestions = [], report, candidate }: QualificationProps & { suggestedFinding?:{note:string;sourceUrl:string;analyzedOn:string}; suggestions?:QualificationSuggestion[]; report?:ProspectReport; candidate?:DiscoveryCandidate }) {
   const stored = company.qualification ?? emptyQualification();
   const [answers, setAnswers] = useState<QualificationAnswers>(stored.answers);
   const [confirmTarget, setConfirmTarget] = useState(false);
@@ -109,8 +115,31 @@ export function QualificationForm({ company, settings, today, suggestedFinding }
   const storedTargetKey = JSON.stringify(stored.targetSnapshot);
   const target = captureTarget(settings);
   const currentTargetKey = JSON.stringify(target);
+  const draftKey = `brine:qualification:${company.campaignId || ''}:${company.id}`;
+  const [restoredDraftKey, setRestoredDraftKey] = useState('');
   useEffect(() => { setAnswers(JSON.parse(storedAnswersKey) as QualificationAnswers); }, [storedAnswersKey]);
   useEffect(() => { setConfirmTarget(false); }, [storedAnswersKey, storedTargetKey, currentTargetKey]);
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(draftKey);
+      if (saved) {
+        const draft = JSON.parse(saved);
+        const restoredAnswers = restoreQualificationAnswers(draft.answers);
+        if (draft.base === storedAnswersKey && restoredAnswers) {
+          setAnswers(restoredAnswers);
+          setConfirmTarget(draft.target === currentTargetKey && draft.confirmTarget === true);
+        } else sessionStorage.removeItem(draftKey);
+      }
+    } catch { /* Browser storage is optional; the form remains editable. */ }
+    setRestoredDraftKey(draftKey + storedAnswersKey);
+  }, [draftKey, storedAnswersKey, currentTargetKey]);
+  useEffect(() => {
+    if (restoredDraftKey !== draftKey + storedAnswersKey) return;
+    try {
+      if (JSON.stringify(answers) === storedAnswersKey && !confirmTarget) sessionStorage.removeItem(draftKey);
+      else sessionStorage.setItem(draftKey, JSON.stringify({ base: storedAnswersKey, answers, target: currentTargetKey, confirmTarget }));
+    } catch { /* A full or disabled session store must not block saving to Brine. */ }
+  }, [answers, confirmTarget, currentTargetKey, draftKey, restoredDraftKey, storedAnswersKey]);
   function change<K extends CriterionKey>(key: K, patch: Partial<QualificationAnswers[K]>) { setAnswers(previous => ({ ...previous, [key]: { ...previous[key], ...patch } })); }
   let evaluation: ReturnType<typeof evaluateQualification> | null = null;
   try { evaluation = evaluateQualification({ ...company, qualification: { ...stored, answers, targetSnapshot: confirmTarget ? target : stored.targetSnapshot } }, settings, today); }
@@ -130,17 +159,25 @@ export function QualificationForm({ company, settings, today, suggestedFinding }
     if (key === 'references') change(key, { improvement: appendNotes(answers.references.improvement, notes), sourceUrl: answers.references.sourceUrl || source });
     if (key === 'access') change(key, { channelAssociation: appendNotes(answers.access.channelAssociation, notes) });
   }
-  return <section className="panel section-panel qualification-block" aria-labelledby="qualification-heading">
-    <div className="section-title"><span className="section-number">01</span><div><h2 id="qualification-heading">Qualification</h2><p className="muted">Cinq réponses vérifiées pour choisir votre prochaine conversation.</p></div></div>
-    <>{suggestedFinding&&<button type="button" className="button secondary" onClick={()=>change('problem',{description:answers.problem.description||suggestedFinding.note,proofUrl:answers.problem.proofUrl||suggestedFinding.sourceUrl,observedOn:answers.problem.observedOn||suggestedFinding.analyzedOn})}>Reprendre le constat retenu comme preuve</button>}<PayloadForm action={saveQualificationAction.bind(null, company.id)} payload={{ answers }} submit="Enregistrer la qualification" testId="qualification-form">
+  return <section className="panel section-panel qualification-block" aria-labelledby="qualification-heading" data-qualification-dirty={JSON.stringify(answers) !== storedAnswersKey || confirmTarget ? 'true' : 'false'}>
+    <div className="section-title"><span className="section-number">01</span><div><h2 id="qualification-heading">Mes cinq critères de qualification</h2><p className="muted">Vérifiez les preuves de l’analyse, puis confirmez vos réponses et leurs points.</p></div></div>
+    <>{suggestedFinding&&<button type="button" className="button secondary" onClick={()=>change('problem',{description:answers.problem.description||suggestedFinding.note,proofUrl:answers.problem.proofUrl||suggestedFinding.sourceUrl,observedOn:answers.problem.observedOn||suggestedFinding.analyzedOn})}>Reprendre le constat retenu comme preuve</button>}<PayloadForm action={saveQualificationAction.bind(null, company.id)} candidateId={company.candidateId} payload={{ answers }} submit="Enregistrer la qualification" testId="qualification-form">
       <input type="hidden" name="expectedTarget" value={currentTargetKey}/>
-      <TargetReminder target={target}/>
+      <details className="qualification-target-details"><summary>Rappel de la cible et de l’offre</summary><TargetReminder target={target}/></details>
       <p className="qual-known-company"><strong>Informations de la fiche</strong>{company.business || 'Activité non renseignée'} · {company.city || 'Zone non renseignée'}</p>
       {criterionKeys.map((key, index) => {
         const criterion = evaluation?.criteria.find(item => item.key === key);
-        return <fieldset className="qual-question" key={key} data-testid={'qualification-question-' + key}>
+        const current = evaluateQualification(company, settings, today).criteria.find(item => item.key === key);
+        return <fieldset className="qual-question" id={'qualification-criterion-' + key} key={key} data-testid={'qualification-question-' + key}>
           <legend><span className="qual-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span>{QUALIFICATION_RULES.criteria[key].label}</legend>
           <p className="field-help">{criterionHelp[key]}</p>
+          <div className="qualification-current-answer"><span><strong>Ma réponse enregistrée</strong>{current?.answerLabel || 'À vérifier'}</span><strong>{current?.complete ? `${current.points} / ${current.maxPoints} pts confirmés` : 'Points à confirmer'}</strong></div>
+          {company.qualificationEnrichment?.revalidate?.includes(key) && <p className="qualification-revalidate"><Info size={16} aria-hidden="true"/> Nouvelle analyse : revérifiez ce critère. Votre réponse est conservée.</p>}
+          {report && candidate && suggestions.filter(suggestion => suggestion.criterion === key).map(suggestion => <QualificationSuggestionPanel key={suggestion.id} suggestion={suggestion} report={report} candidateId={candidate.id} revision={company.participationRevision ?? candidate.revision} findingRevision={candidate.revision} currentAnswer={answers[key].answer} hasSavedResponse={JSON.stringify(stored.answers[key]) !== JSON.stringify(emptyQualification().answers[key])} dirty={JSON.stringify(answers) !== storedAnswersKey} onModify={() => {
+            setAnswers(previous => ({ ...previous, [key]: { ...suggestion.response, observationKeys: previous[key].observationKeys } }));
+            document.getElementById('qualification-answer-' + key)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+          }}/>) }
+          <div className="qualification-answer-heading" id={'qualification-answer-' + key}><strong>{JSON.stringify(answers[key]) !== JSON.stringify(stored.answers[key]) ? 'Ma réponse à enregistrer' : 'Choisir ou modifier ma réponse'}</strong><span>Maximum {QUALIFICATION_RULES.criteria[key].maxPoints} points</span></div>
           <AnswerChoices criterion={key} value={answers[key].answer} onChange={value => change(key, { answer: value } as Partial<QualificationAnswers[typeof key]>)}/>
           {key === 'fit' && <>
             {answers.fit.answer !== 'unknown' && <TextField name="answers.fit.note" label="Précision sur l’adéquation (facultative)" value={answers.fit.note} onChange={note => change('fit', { note })} placeholder="Un cas partiel ou une exclusion à expliquer…"/>}
@@ -179,7 +216,7 @@ export function QualificationForm({ company, settings, today, suggestedFinding }
           {answers[key].answer !== 'unknown' && criterion && !criterion.complete && <p className="qual-draft-missing"><strong>À compléter :</strong> {criterion.missing.join(' ')}</p>}
         </fieldset>;
       })}
-      <div className="qual-draft-progress"><strong>Aperçu du brouillon</strong>{evaluation ? evaluation.completedCount + ' critères sur 5 complets · ' + evaluation.confirmedPoints + ' points confirmés.' : 'Vérifiez le format des liens et des dates avant de calculer ce brouillon.'}</div>
+      <div className="qual-draft-progress" aria-live="polite"><strong>Aperçu avant enregistrement</strong>{evaluation ? `${evaluation.confirmedPoints}/100 points confirmés · ${evaluation.completedCount}/5 critères validés${evaluation.complete ? ' · Qualification complète' : ' · Qualification en cours'}` : 'Vérifiez le format des liens et des dates avant de calculer ce brouillon.'}</div>
       <p className="field-help">Vous pouvez enregistrer sans tout compléter. Une inconnue reste à vérifier ; elle ne vaut pas zéro. Les points et la priorité sont recalculés à l’enregistrement.</p>
     </PayloadForm></>
   </section>;
@@ -194,7 +231,7 @@ export function ObservationsForm({ company, today }: { company: QualifiedCompany
   function changeExtra<K extends Exclude<keyof DetailedObservations, 'items'>>(key: K, value: DetailedObservations[K]) { setObservations(previous => ({ ...previous, [key]: value })); }
   return <section className="panel section-panel observations-block" aria-labelledby="observations-heading">
     <div className="section-title"><ClipboardList size={20} aria-hidden="true"/><div><h2 id="observations-heading">Ce que j’ai observé</h2><p className="muted">Une checklist manuelle pour garder vos constats, sans points supplémentaires.</p></div></div>
-    <PayloadForm action={saveObservationsAction.bind(null, company.id)} payload={observations} submit="Enregistrer les observations" testId="observation-form">
+    <PayloadForm action={saveObservationsAction.bind(null, company.id)} candidateId={company.candidateId} payload={observations} submit="Enregistrer les observations" testId="observation-form">
       <p className="field-help">Renseignez seulement ce que vous avez examiné. Notes, sources et dates sont facultatives. « Non pertinent » s’utilise uniquement si l’observation ne s’applique pas.</p>
       {manualObservationKeys.map((key, index) => {
         const item = observations.items[key];
@@ -240,7 +277,7 @@ export function AfterExchangeForm({ company }: { company: QualifiedCompany }) {
     <div className="after-exchange-body stack">
       <p className="field-help">Enregistrez les propos réellement échangés. Cette qualification ne modifie pas le score avant contact et ne crée pas un second score.</p>
       {storedEvaluation.reevaluationRequired && <p className="form-error" role="alert"><strong>Qualification à réévaluer.</strong> De nouvelles informations contredisent la qualification passée. L’étape et l’historique sont conservés.</p>}
-      <PayloadForm action={saveAfterExchangeAction.bind(null, company.id)} payload={exchange} submit="Enregistrer après l’échange" testId="after-exchange-form">
+      <PayloadForm action={saveAfterExchangeAction.bind(null, company.id)} candidateId={company.candidateId} payload={exchange} submit="Enregistrer après l’échange" testId="after-exchange-form">
         <div className="exchange-criteria">
           <section className="exchange-criterion"><SelectField name="need" label="Besoin reconnu" value={exchange.need} onChange={value => choose('need', value)} options={AFTER_EXCHANGE_OPTIONS.need}/><TextField name="needNote" label="Les propos du prospect sur son besoin" value={exchange.needNote} onChange={value => change('needNote', value)} textarea help="Une courte reformulation de ce qui a été dit."/></section>
           <section className="exchange-criterion"><SelectField name="timing" label="Priorité et calendrier" value={exchange.timing} onChange={value => choose('timing', value)} options={AFTER_EXCHANGE_OPTIONS.timing}/><TextField name="timingNote" label="Précision sur le calendrier (facultative)" value={exchange.timingNote} onChange={value => change('timingNote', value)}/><TextField name="timingDate" label="Échéance évoquée (facultative)" type="date" value={exchange.timingDate} onChange={value => change('timingDate', value)}/></section>

@@ -10,6 +10,12 @@ import { buildProspectReport, enrichCompanyReport, mergeCandidateReports, listCa
 import { approachPlanSchema, contactDraftSchema, contactEventSchema, contactReadinessSchema, providerProfileSchema, researchDataSchema } from './research-schemas';
 import { validProfessionalChannel } from './contact-preparation';
 import { parseVisualObservation, visualObservationFingerprint, visualObservationScope, type VisualObservationInput } from './visual-evidence';
+import { emptyEnrichment, proposeQualification, applyQualificationSuggestion, isConfirmedFact, type QualificationEnrichment } from './qualification-enrichment';
+import type { QualificationData, CriterionKey } from './qualification-types';
+import { withDefaultProviderProfile } from './provider-profile';
+import { storeResearchAsset } from './research-assets';
+import { migrateLegacyVisualAssets } from './legacy-visual-assets';
+import { campaignSelects, campaignSnapshot } from './campaign-backup';
 
 const timestamp = () => new Date().toISOString();
 const json = <T>(value: unknown): T => JSON.parse(String(value));
@@ -104,6 +110,7 @@ export class CampaignRepository {
       }
       for (const [siren, value] of identities) if (value) await tx.execute({ sql: 'INSERT OR IGNORE INTO company_registry_identity(siren, companyId, siret) VALUES (?, ?, ?)', args: [siren, value.companyId, value.siret] });
     });
+    await migrateLegacyVisualAssets(this);
   }
   async listCampaigns(): Promise<Campaign[]> { return (await this.client.execute('SELECT payload FROM campaigns ORDER BY rowid')).rows.map(r => json<Campaign>(r.payload)); }
   async getCampaign(id: string): Promise<Campaign> { return this.readTransaction(tx => this.campaign(tx, id)); }
@@ -129,7 +136,7 @@ export class CampaignRepository {
     });
   }
   private project(c: Company, p: Participation, campaign: Campaign): CampaignCompany {
-    return { ...c, stage: p.stage, archived: p.archived || campaign.status === 'archived', nextAction: c.oppositionActive ? null : p.nextAction, qualification: { ...p.qualification, observations: c.qualification?.observations || emptyQualification().observations }, campaignId: campaign.id, campaignName: campaign.name, participationRevision: p.revision, approach: p.approach, findingIds: p.findingIds, readiness:p.readiness,plan:p.plan,planHistory:p.planHistory||[],drafts:p.drafts||[],contactEvents:p.contactEvents||[] };
+    return { ...c, stage: p.stage, archived: p.archived || campaign.status === 'archived', nextAction: c.oppositionActive ? null : p.nextAction, qualification: { ...p.qualification, observations: c.qualification?.observations || emptyQualification().observations }, qualificationEnrichment:p.qualificationEnrichment, campaignId: campaign.id, campaignName: campaign.name, participationRevision: p.revision, approach: p.approach, findingIds: p.findingIds, readiness:p.readiness,plan:p.plan,planHistory:p.planHistory||[],drafts:p.drafts||[],contactEvents:p.contactEvents||[] };
   }
   async listCompanies(campaignId: string): Promise<CampaignCompany[]> {
     return this.readTransaction(async tx => { const campaign = await this.campaign(tx, campaignId); const rows = await tx.execute({ sql: 'SELECT payload FROM campaign_participations WHERE campaignId = ?', args: [campaignId] }); const companies: CampaignCompany[] = []; for (const r of rows.rows) { const p = json<Participation>(r.payload); companies.push(this.project(await this.shared(tx, p.companyId), p, campaign)); } return companies.sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)); });
@@ -178,6 +185,7 @@ export class CampaignRepository {
     return this.mutate(campaignId,id,expected,(p,_c,campaign) => {
       if (confirm) { const target = captureTarget(campaign); if (JSON.stringify(targetSnapshotSchema.parse(expectedTarget)) !== JSON.stringify(target)) throw new Error('La cible a changé. Rechargez la fiche avant de confirmer.'); p.qualification.targetSnapshot = target; }
       p.qualification.answers = parsed.answers;
+      if(p.qualificationEnrichment)p.qualificationEnrichment.revalidate=[];
     }, 'Qualification de cette campagne enregistrée.');
   }
   async saveObservations(campaignId:string,id:string,input:unknown,expected?:number) {
@@ -248,6 +256,75 @@ export class CampaignRepository {
   async getRun(id:string):Promise<DiscoveryRun> {const rows=await this.client.execute({sql:'SELECT payload FROM discovery_runs WHERE id = ?',args:[id]});if(!rows.rows.length)throw new Error('Lot introuvable.');return json(rows.rows[0].payload);}
   async listCandidates(runId:string):Promise<DiscoveryCandidate[]> {return (await this.client.execute({sql:'SELECT payload FROM discovery_candidates WHERE runId = ? ORDER BY rowid',args:[runId]})).rows.map(r=>json(r.payload));}
   async getCandidate(id:string):Promise<DiscoveryCandidate> {const r=await this.client.execute({sql:'SELECT payload FROM discovery_candidates WHERE id = ?',args:[id]});if(!r.rows.length)throw new Error('Résultat introuvable.');return json(r.rows[0].payload);}
+  async listCampaignCandidates(campaignId:string):Promise<DiscoveryCandidate[]> {
+    const rows=await this.client.execute({sql:'SELECT c.payload FROM discovery_candidates c JOIN discovery_runs r ON r.id=c.runId WHERE r.campaignId=? ORDER BY c.rowid DESC',args:[campaignId]});
+    const seen=new Set<string>();return rows.rows.map(row=>json<DiscoveryCandidate>(row.payload)).filter(c=>{const key=c.companyId?`company:${c.companyId}`:candidateDedupeKey(c);if(seen.has(key))return false;seen.add(key);return true;});
+  }
+  private async qualificationContextTx(tx:Transaction,id:string){
+    const candidate=await this.getCandidateTx(tx,id),row=(await tx.execute({sql:'SELECT payload FROM discovery_runs WHERE id=?',args:[candidate.runId]})).rows[0];
+    if(!row)throw new Error('Lot introuvable.');const run=json<DiscoveryRun>(row.payload),campaign=await this.campaign(tx,run.campaignId),report=await this.candidateReportTx(tx,candidate,campaign);
+    const membership=candidate.companyId?(await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE campaignId=? AND companyId=?',args:[campaign.id,candidate.companyId]})).rows[0]:undefined;
+    let company:CampaignCompany;
+    if(membership&&candidate.companyId)company=this.project(await this.shared(tx,candidate.companyId),json<Participation>(membership.payload),campaign);
+    else{
+      const contact:Contact={name:'',role:'',email:'',phone:'',formUrl:'',profileUrl:''};for(const item of report.contacts)if(!contact[item.kind])contact[item.kind]=item.value;
+      company={id:candidate.id,candidateId:candidate.id,name:candidate.company.name,website:candidate.website,city:candidate.company.city,business:candidate.company.business,targetFit:'unknown',problemFound:'unknown',contactAvailable:'unknown',observation:'',proofUrl:'',observedOn:'',trigger:'',stage:'À étudier',archived:false,oppositionActive:false,oppositionDate:'',oppositionNote:'',contact,nextAction:null,createdAt:run.createdAt,updatedAt:run.updatedAt,qualification:candidate.qualificationDraft||emptyQualification(),qualificationEnrichment:candidate.qualificationEnrichment,campaignId:campaign.id,campaignName:campaign.name,participationRevision:candidate.revision,approach:'',findingIds:[]};
+    }
+    return {candidate,campaign,company,report,suggestions:proposeQualification(report,campaign,company.qualificationEnrichment)};
+  }
+  getQualificationContext(id:string){return this.readTransaction(tx=>this.qualificationContextTx(tx,id));}
+  async saveCandidateQualification(id:string,revision:number,input:unknown,kind:'answers'|'observations'|'exchange'='answers',confirm=false,expectedTarget?:unknown){
+    await this.transaction(async tx=>{
+      const context=await this.qualificationContextTx(tx,id),{candidate,company,campaign}=context;
+      if(!company.candidateId)throw new Error('Ce candidat possède déjà une fiche commune. Rechargez-la pour modifier sa qualification.');
+      if(candidate.revision!==revision)throw new Error('Le brouillon a changé. Rechargez la fiche.');
+      const q=candidate.qualificationDraft||emptyQualification();
+      if(kind==='answers'){q.answers=qualificationInputSchema.parse(input).answers;candidate.qualificationEnrichment&&= {...candidate.qualificationEnrichment,revalidate:[]};if(confirm){const target=captureTarget(campaign);if(JSON.stringify(targetSnapshotSchema.parse(expectedTarget))!==JSON.stringify(target))throw new Error('La cible a changé.');q.targetSnapshot=target;}}
+      if(kind==='observations')q.observations=observationsSchema.parse(input);
+      if(kind==='exchange')q.afterExchange={...afterExchangeInputSchema.parse(input),qualifiedAt:q.afterExchange.qualifiedAt};
+      candidate.qualificationDraft=qualificationDataSchema.parse(q);candidate.revision++;await this.putCandidate(tx,candidate);
+    });return (await this.getQualificationContext(id)).company;
+  }
+  async decideQualificationSuggestion(id:string,revision:number,suggestionId:string,decision:'accept'|'reject',overwrite=false){
+    z.enum(['accept','reject']).parse(decision);
+    await this.transaction(async tx=>{
+      const {candidate,company,campaign,report,suggestions}=await this.qualificationContextTx(tx,id),suggestion=suggestions.find(s=>s.id===suggestionId);
+      if(!suggestion)throw new Error('La proposition a changé. Rechargez la fiche.');
+      if(suggestion.state===(decision==='accept'?'accepted':'rejected'))return;
+      if(company.participationRevision!==revision)throw new Error('La qualification a changé. Rechargez la fiche.');
+      const enrichment=structuredClone(company.qualificationEnrichment||emptyEnrichment());let qualification=company.qualification||emptyQualification();
+      if(decision==='accept'){
+        if(suggestion.evidenceIds.some(factId=>!report.facts.some(f=>f.id===factId&&isConfirmedFact(f))))throw new Error('Confirmez séparément les constats avant d’accepter leurs points.');
+        if(JSON.stringify(qualification.answers[suggestion.criterion])!==JSON.stringify(emptyQualification().answers[suggestion.criterion])&&!overwrite)throw new Error('Une réponse existe déjà. Choisissez explicitement de la remplacer.');
+        qualification=applyQualificationSuggestion(qualification,suggestion);enrichment.evidence[suggestion.criterion]=suggestion.evidenceIds;enrichment.revalidate=enrichment.revalidate?.filter(key=>key!==suggestion.criterion);
+      }
+      enrichment.decisions[suggestion.id]=decision==='accept'?'accepted':'rejected';
+      if(company.candidateId){candidate.qualificationDraft=qualification;candidate.qualificationEnrichment=enrichment;candidate.revision++;await this.putCandidate(tx,candidate);}
+      else{const p=await this.participation(tx,campaign.id,company.id);p.qualification={...qualification,observations:p.qualification.observations};p.qualificationEnrichment=enrichment;if(p.readiness)p.readiness={...p.readiness,reason:false};if(p.plan)p.plan={...p.plan,revalidateReason:'La qualification a changé. Revalidez la préparation.'};p.revision++;p.updatedAt=timestamp();await this.writeParticipation(tx,p);await this.log(tx,company.id,campaign.id,`${decision==='accept'?'Proposition acceptée':'Proposition rejetée'} : ${suggestion.criterion}, ${suggestion.points??'?'} points proposés. Les autres critères sont conservés.`);}
+    });return this.getQualificationContext(id);
+  }
+  async reviewFinding(id:string,revision:number,factId:string,decision:'confirmed'|'rejected',note=''){
+    z.enum(['confirmed','rejected']).parse(decision);z.string().max(3000).parse(note);
+    await this.transaction(async tx=>{
+      const {candidate,campaign,company,report}=await this.qualificationContextTx(tx,id),fact=report.facts.find(f=>f.id===factId);
+      if(!fact||fact.corrected)throw new Error('Constat absent ou corrigé.');
+      candidate.research||={sources:[],facts:[],contacts:[],profiles:[],warnings:[]};
+      let stored=candidate.research.facts.find(f=>f.id===factId);
+      if(!stored){stored=structuredClone(fact);candidate.research.facts.push(stored);for(const source of report.sources.filter(s=>fact.sourceIds.includes(s.id)))if(!candidate.research.sources.some(s=>s.id===source.id))candidate.research.sources.push(source);}
+      if(stored.review?.state===decision&&stored.review.note===note.trim())return;
+      if(candidate.revision!==revision)throw new Error('Le constat a changé. Rechargez la fiche.');
+      if(decision==='confirmed'&&(fact.kind==='hypothesis'&&fact.review?.provenance!=='vision'||!fact.sourceIds.length||fact.sourceIds.some(sourceId=>!report.sources.some(source=>source.id===sourceId))))throw new Error('Ce constat ne possède pas de preuve consultable à confirmer.');
+      stored.review={state:decision,nature:stored.review?.nature||'observation',provenance:stored.review?.provenance||'manual',reviewedAt:timestamp(),...(note.trim()?{note:note.trim()}:{})};
+      if(stored.review.provenance==='vision'&&decision==='confirmed')stored.kind='observed';
+      if(company.candidateId&&decision==='rejected'){candidate.qualificationEnrichment||=emptyEnrichment();candidate.qualificationEnrichment.revalidate=[...new Set([...(candidate.qualificationEnrichment.revalidate||[]),...Object.entries(candidate.qualificationEnrichment.evidence).filter(([,ids])=>ids?.includes(factId)).map(([key])=>key as CriterionKey)])];}
+      candidate.research!.report=undefined;candidate.revision++;await this.putCandidate(tx,candidate);
+      if(!company.candidateId){
+        const memberships=await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE companyId=?',args:[company.id]});
+        for(const row of memberships.rows){const p=json<Participation>(row.payload);if(p.readiness)p.readiness={...p.readiness,reason:false};if(p.plan)p.plan={...p.plan,revalidateReason:'Une preuve a été confirmée ou rejetée. Revalidez le motif.'};if(decision==='rejected'){p.qualificationEnrichment||=emptyEnrichment();p.qualificationEnrichment.revalidate=[...new Set([...(p.qualificationEnrichment.revalidate||[]),...Object.entries(p.qualificationEnrichment.evidence).filter(([,ids])=>ids?.some(id=>id===factId||id.endsWith(':'+factId))).map(([key])=>key as CriterionKey)])];}p.revision++;p.updatedAt=timestamp();await this.writeParticipation(tx,p);}
+        await this.log(tx,company.id,campaign.id,`Constat ${decision==='confirmed'?'confirmé':'rejeté'} : ${stored.text}`,'note','Validation des preuves');
+      }
+    });return this.getQualificationContext(id);
+  }
   private async candidateReportTx(tx:Transaction,candidate:DiscoveryCandidate,campaign:Campaign):Promise<ProspectReport>{
     const report=buildProspectReport(candidate,campaign);
     if(!candidate.companyId)return report;
@@ -274,10 +351,7 @@ export class CampaignRepository {
     await tx.execute({sql:'INSERT INTO discovery_candidates(id, runId, dedupeKey, payload) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, dedupeKey = excluded.dedupeKey',args:[c.id,c.runId,dedupeKey,JSON.stringify(normalized)]});
   }
   async snapshot():Promise<CampaignBackupData> {
-    const tables=['campaigns','campaign_participations','discovery_runs','discovery_candidates'];
-    const r=await this.client.batch(tables.map(table=>`SELECT payload FROM ${table}`),'read');
-    const profile=(await this.client.execute("SELECT payload FROM research_provider_profile WHERE id = 'provider'")).rows[0];
-    return {campaigns:r[0].rows.map(x=>json(x.payload)),participations:r[1].rows.map(x=>json(x.payload)),runs:r[2].rows.map(x=>json(x.payload)),candidates:r[3].rows.map(x=>json(x.payload)),identities:(await this.client.execute('SELECT * FROM company_registry_identity')).rows as unknown as CampaignBackupData['identities'],activityCampaigns:(await this.client.execute('SELECT * FROM campaign_activity_context')).rows as unknown as CampaignBackupData['activityCampaigns'],sourceIdentities:(await this.client.execute('SELECT * FROM company_source_identity')).rows as unknown as CampaignBackupData['sourceIdentities'],...(profile?{providerProfile:json<ProviderProfile>(profile.payload)}:{}),corrections:(await this.client.execute('SELECT payload FROM research_fact_corrections')).rows.map(row=>json<ResearchCorrection>(row.payload))};
+    return campaignSnapshot((await this.client.batch(campaignSelects,'read')).map(result=>result.rows as unknown as Record<string,unknown>[]));
   }
   async epoch():Promise<string> {return String((await this.client.execute("SELECT value FROM campaign_meta WHERE id = 'epoch'")).rows[0].value);}
   async createRun(campaignId:string,limit:number,key:string,companyIds:string[]=[]):Promise<DiscoveryRun> {
@@ -303,7 +377,7 @@ export class CampaignRepository {
   }
   async confirmWebsite(id:string,website:string,revision:number) {
     const url=new URL(website);if(!['https:','http:'].includes(url.protocol)||url.username||url.password)throw new Error('Adresse de site invalide.');
-    await this.transaction(async tx=>{const c=await this.getCandidateTx(tx,id);if(c.revision!==revision||['accepted','rejected'].includes(c.status))throw new Error('Ce résultat a changé.');c.website=url.href;c.html=null;c.mobile=null;c.htmlError='';c.mobileError='';c.status='queued';c.attempts={};c.revision++;await this.putCandidate(tx,c);const rows=await tx.execute({sql:'SELECT payload FROM discovery_runs WHERE id = ?',args:[c.runId]});const run=json<DiscoveryRun>(rows.rows[0].payload);if((await this.campaign(tx,run.campaignId)).status!=='active')throw new Error('Réactivez la campagne.');if(run.status==='cancelled')throw new Error('Le lot a été annulé.');await this.putRun(tx,{...run,status:'queued',generation:run.generation+1,owner:'',leaseUntil:'',updatedAt:timestamp()});});
+    await this.transaction(async tx=>{const c=await this.getCandidateTx(tx,id);if(c.revision!==revision||['accepted','rejected'].includes(c.status))throw new Error('Ce résultat a changé.');c.website=url.href;c.html=null;c.mobile=null;c.htmlError='';c.mobileError='';c.status='queued';c.attempts={};if(c.qualificationEnrichment)c.qualificationEnrichment.revalidate=[...new Set([...(c.qualificationEnrichment.revalidate||[]),...Object.keys(c.qualificationEnrichment.evidence) as CriterionKey[]])];c.revision++;await this.putCandidate(tx,c);const rows=await tx.execute({sql:'SELECT payload FROM discovery_runs WHERE id = ?',args:[c.runId]});const run=json<DiscoveryRun>(rows.rows[0].payload);if((await this.campaign(tx,run.campaignId)).status!=='active')throw new Error('Réactivez la campagne.');if(run.status==='cancelled')throw new Error('Le lot a été annulé.');await this.putRun(tx,{...run,status:'queued',generation:run.generation+1,owner:'',leaseUntil:'',updatedAt:timestamp()});});
   }
   private async getCandidateTx(tx:Transaction,id:string):Promise<DiscoveryCandidate>{const r=await tx.execute({sql:'SELECT payload FROM discovery_candidates WHERE id = ?',args:[id]});if(!r.rows.length)throw new Error('Résultat introuvable.');return json(r.rows[0].payload);}
   async knownRegistryCompany(campaignId:string,siren:string) {
@@ -384,6 +458,7 @@ export class CampaignRepository {
         report=await this.candidateReportTx(tx,{...candidate,companyId},campaign);
         if(findingIds.some(id=>!report.facts.some(fact=>fact.id===id&&!fact.corrected)))throw new Error('Ce constat a été corrigé. Rechargez le dossier avant de modifier vos choix.');
       }
+      const createdHere=!companyId;
       if(!companyId)companyId=await this.createTx(tx,run.campaignId,{name:candidate.company.name,city:candidate.company.city,business:candidate.company.business,website:candidate.website},{kind:'note',type:'Recherche d’entreprise',date:parisToday(),text:`Entreprise issue de la recherche.\n${candidate.company.siren?`SIREN : ${candidate.company.siren}\n`:''}${candidate.company.siret?`SIRET : ${candidate.company.siret}\n`:''}Source : ${candidate.company.sourceUrl}`});
       const shared=await this.shared(tx,companyId);
       if(shared.oppositionActive)throw new Error('Cette entreprise a une opposition active.');
@@ -395,7 +470,10 @@ export class CampaignRepository {
       companyDetailsSchema.parse({...shared,contact:shared.contact});
       await tx.execute({sql:`UPDATE contacts SET ${contactKeys.map(k=>`"${k}" = ?`).join(', ')} WHERE companyId = ?`,args:[...contactKeys.map(k=>shared.contact[k]),companyId]});
       await tx.execute({sql:'UPDATE companies SET updatedAt = ? WHERE id = ?',args:[new Date(Math.max(Date.now(),Date.parse(shared.updatedAt)+1)).toISOString(),companyId]});
+      const membershipBefore=(await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE campaignId=? AND companyId=?',args:[run.campaignId,companyId]})).rows[0];
       const p=await this.attachTx(tx,run.campaignId,companyId);
+      // New drafts move once into the existing qualification format, never over an existing evaluation.
+      if(candidate.qualificationDraft&&(createdHere||!membershipBefore)){p.qualification=qualificationDataSchema.parse(candidate.qualificationDraft);p.qualificationEnrichment=candidate.qualificationEnrichment;const sharedQualification=shared.qualification||emptyQualification();if(createdHere)sharedQualification.observations=candidate.qualificationDraft.observations;await tx.execute({sql:'UPDATE companies SET qualification=? WHERE id=?',args:[JSON.stringify(sharedQualification),companyId]});}
       const oldSelection=p.findingIds.filter(id=>id.startsWith(`${candidate.id}:`));
       const selectedFindingIds=alreadyAccepted&&!selectionComplete&&!findingIds.length?oldSelection.map(id=>id.slice(candidate.id.length+1)).filter(id=>report.facts.some(fact=>fact.id===id&&!fact.corrected)):findingIds;
       p.findingIds=[...new Set([...p.findingIds.filter(id=>!id.startsWith(`${candidate.id}:`)),...selectedFindingIds.map(id=>`${candidate.id}:${id}`)])];
@@ -434,26 +512,28 @@ export class CampaignRepository {
   async addVisualObservation(id:string,revision:number,input:VisualObservationInput):Promise<DiscoveryCandidate>{
     const observation=parseVisualObservation(input);
     z.number().int().positive().parse(revision);
+    const asset=observation.screenshot?await storeResearchAsset(this,Buffer.from(observation.screenshot.split(',')[1],'base64')):null;
     const fingerprint=visualObservationFingerprint(observation);
     return this.transaction(async tx=>{
       const candidate=await this.getCandidateTx(tx,id);
       const existing=candidate.research?.facts.find(fact=>fact.visual&&!fact.corrected&&visualObservationFingerprint({...fact.visual,observation:fact.text,observedOn:fact.observedOn})===fingerprint);
       // Exact retries return the current result even if the first save already changed its revision.
-      if(existing&&(!observation.screenshot||existing.visual?.screenshot===observation.screenshot))return candidate;
+      if(existing&&(!observation.screenshot||existing.visual?.screenshot===observation.screenshot||existing.visual?.assetId===asset?.id))return candidate;
       if(candidate.revision!==revision)throw new Error('Ce résultat a changé. Rechargez le lot avant d’ajouter votre observation.');
       if(['queued','processing'].includes(candidate.status))throw new Error('L’analyse est encore en cours. Ajoutez votre observation une fois le résultat disponible.');
-      if(existing?.visual?.screenshot)throw new Error('Cette observation est déjà conservée avec une capture. Décrivez un nouveau constat pour conserver une autre preuve.');
+      if(existing?.visual?.screenshot||existing?.visual?.assetId)throw new Error('Cette observation est déjà conservée avec une capture. Décrivez un nouveau constat pour conserver une autre preuve.');
       const runRow=await tx.execute({sql:'SELECT payload FROM discovery_runs WHERE id=?',args:[candidate.runId]});
       if(!runRow.rows.length)throw new Error('Lot introuvable.');
       const run=json<DiscoveryRun>(runRow.rows[0].payload),campaign=await this.campaign(tx,run.campaignId);
-      const {observation:text,observedOn,...visual}=observation;
+      const {observation:text,observedOn,screenshot:_screenshot,...visualInput}=observation;
+      const visual={...visualInput,...(asset?{assetId:asset.id}:{})};
       candidate.research ||= {sources:[],facts:[],contacts:[],profiles:[],warnings:[]};
       if(existing){
-        existing.visual=visual;existing.scope=visualObservationScope(observation);
+        existing.visual=visual;existing.scope=visualObservationScope(observation);existing.review={state:'confirmed',nature:'observation',provenance:'manual',reviewedAt:timestamp()};
       }else{
         const sourceId=`visual-source-${randomUUID()}`;
         candidate.research.sources.push({id:sourceId,provider:'manual',url:visual.pageUrl,title:`Observation visuelle humaine : ${visual.element}`,excerpt:text,collectedAt:observedOn});
-        candidate.research.facts.push({id:`visual-fact-${randomUUID()}`,section:'site',kind:'observed',sentiment:'issue',text,sourceIds:[sourceId],observedOn,scope:visualObservationScope(observation),visual});
+        candidate.research.facts.push({id:`visual-fact-${randomUUID()}`,section:'site',kind:'observed',sentiment:'issue',text,sourceIds:[sourceId],observedOn,scope:visualObservationScope(observation),visual,review:{state:'confirmed',nature:'observation',provenance:'manual',reviewedAt:timestamp()}});
       }
       // The prior narrative, contacts, profiles, facts and source history remain intact.
       candidate.research.report=buildProspectReport(candidate,campaign);
@@ -499,7 +579,8 @@ export class CampaignRepository {
       const memberships=await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE companyId=?',args:[id]});
       for(const row of memberships.rows){const p=json<Participation>(row.payload);if(p.readiness)p.readiness={...p.readiness,reason:false};if(p.plan)p.plan={...p.plan,revalidateReason:mode==='hypothesis'?'Une hypothèse d’approche a été réfutée. Le fait observé reste conservé ; revalidez l’aide envisagée.':'Une preuve du dossier a été corrigée. Revalidez le motif et les brouillons.'};
         // The current participation is written by mutate once after the shared correction.
-        if(p.campaignId===campaignId){_p.readiness=p.readiness;_p.plan=p.plan;}else{p.revision++;p.updatedAt=timestamp();await this.writeParticipation(tx,p);}
+        if(mode==='fact'&&p.qualificationEnrichment){p.qualificationEnrichment.revalidate=[...new Set([...(p.qualificationEnrichment.revalidate||[]),...Object.entries(p.qualificationEnrichment.evidence).filter(([,ids])=>ids?.some(evidenceId=>evidenceId===fact.id||fact.id.endsWith(':'+evidenceId))).map(([key])=>key as CriterionKey)])];}
+        if(p.campaignId===campaignId){_p.readiness=p.readiness;_p.plan=p.plan;_p.qualificationEnrichment=p.qualificationEnrichment;}else{p.revision++;p.updatedAt=timestamp();await this.writeParticipation(tx,p);}
       }
       await this.log(tx,id,campaignId,`Constat : ${fact.id}\n${mode==='hypothesis'?'Hypothèse réfutée':'Correction'} : ${parsed}`,'note','Correction du dossier');
     },'Correction commune enregistrée ; les préparations sont à revalider.');
@@ -519,7 +600,7 @@ export class CampaignRepository {
   }
   async getProviderProfile():Promise<ProviderProfile>{
     const rows=await this.client.execute("SELECT payload FROM research_provider_profile WHERE id = 'provider'");
-    return rows.rows.length?providerProfileSchema.parse(json(rows.rows[0].payload)):{name:'',activity:'',skills:'',services:'',website:'',references:'',terms:'',prices:'',signature:'',revision:0};
+    return withDefaultProviderProfile(rows.rows.length?providerProfileSchema.parse(json(rows.rows[0].payload)):undefined);
   }
   async saveProviderProfile(input:unknown,expectedRevision?:number):Promise<ProviderProfile>{
     return this.transaction(async tx=>{
@@ -539,8 +620,8 @@ export class CampaignRepository {
       if(c.oppositionActive)throw new Error('Cette entreprise ne doit plus être contactée.');
       const report=await this.companyReportTx(tx,campaignId,id);
       const profileRow=(await tx.execute("SELECT payload FROM research_provider_profile WHERE id = 'provider'")).rows[0];
-      const profile=profileRow?json<ProviderProfile>(profileRow.payload):undefined;
-      const validEvidence=(ids:string[])=>Boolean(report&&ids.length&&ids.every(factId=>report.facts.some(f=>f.id===factId&&f.kind!=='hypothesis'&&!f.corrected&&f.sourceIds.some(sourceId=>report.sources.some(s=>s.id===sourceId)))));
+      const profile=withDefaultProviderProfile(profileRow?json<ProviderProfile>(profileRow.payload):undefined);
+      const validEvidence=(ids:string[])=>Boolean(report&&ids.length&&ids.every(factId=>report.facts.some(f=>f.id===factId&&f.origin!=='qualification'&&f.origin!=='exchange'&&f.kind!=='hypothesis'&&!f.corrected&&(!f.review||f.review.state==='confirmed')&&f.sourceIds.length>0&&f.sourceIds.every(sourceId=>report.sources.some(s=>s.id===sourceId)))));
       if(parsed.readiness){
         const r=parsed.readiness;
         if(r.targetRevision!==campaign.revision)throw new Error('La cible a changé. Confirmez-la à nouveau.');

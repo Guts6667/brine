@@ -13,6 +13,8 @@ export interface Company {
   oppositionActive: boolean; oppositionDate: string; oppositionNote: string;
   contact: Contact; nextAction: NextAction | null; createdAt: string; updatedAt: string;
   qualification?: QualificationData;
+  candidateId?: string;
+  qualificationEnrichment?: import('./qualification-enrichment').QualificationEnrichment;
   campaignId?: string; campaignName?: string; participationRevision?: number; approach?: string; findingIds?: string[];
   readiness?: ContactReadiness; plan?: ApproachPlan; planHistory?: ApproachPlan[]; drafts?: ContactDraft[]; contactEvents?: ContactEvent[];
 }
@@ -30,5 +32,5 @@ export interface AiTest {
 }
 export type AiTestInput = Omit<AiTest, 'id' | 'companyId' | 'createdAt'>;
 export interface Settings { targetCity: string; targetBusiness: string; targetCompanyType?: string; targetOffer?: string; targetExclusions?: string }
-export interface Backup { schemaVersion: 1 | 2 | 3 | 4; campaignData?: import('./campaign-types').CampaignBackupData; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
-export interface ActionState { ok?: boolean; error?: string; fields?: Record<string, string>; duplicates?: { id: string; name: string }[]; message?: string }
+export interface Backup { schemaVersion: 1 | 2 | 3 | 4 | 5; campaignData?: import('./campaign-types').CampaignBackupData; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
+export interface ActionState { ok?: boolean; error?: string; fields?: Record<string, string>; duplicates?: { id: string; name: string }[]; message?: string; briefId?:string }

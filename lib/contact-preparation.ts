@@ -17,7 +17,7 @@ export function emptyProviderProfile(): ProviderProfile {
 function validEvidence(report: ProspectReport, ids: string[]): ResearchFact[] {
   const sourceIds = new Set(report.sources.map(source => source.id));
   const facts = ids.map(id => report.facts.find(fact => fact.id === id));
-  if (!ids.length || new Set(ids).size !== ids.length || facts.some(fact => !fact || fact.corrected || fact.kind === 'hypothesis' || !fact.sourceIds.length || fact.sourceIds.some(id => !sourceIds.has(id)))) {
+  if (!ids.length || new Set(ids).size !== ids.length || facts.some(fact => !fact || fact.origin === 'qualification' || fact.origin === 'exchange' || fact.corrected || (fact.review && fact.review.state !== 'confirmed') || fact.kind === 'hypothesis' || !fact.sourceIds.length || fact.sourceIds.some(id => !sourceIds.has(id)))) {
     throw new Error('Choisissez un constat sourcé, non corrigé et distinct d’une hypothèse.');
   }
   return facts as ResearchFact[];
@@ -184,7 +184,7 @@ export const conversationBranches = [
 ] as const;
 
 export interface DraftContext { event?: ContactEvent; followup?: boolean; now?: Date }
-function observationExcerpt(value: string, maximum = 260): { text: string; shortened: boolean } {
+function observationExcerpt(value: string, maximum = 180): { text: string; shortened: boolean } {
   if (value.length <= maximum) return { text: value, shortened: false };
   const prefix = value.slice(0, maximum);
   const sentenceEnds = [...prefix.matchAll(/[.!?](?:\s|$)/g)].map(match => match.index + 1);
@@ -212,8 +212,9 @@ export function buildContactDrafts(plan: ApproachPlan, report: ProspectReport, p
     { label: 'Observation sourcée', text: observation }, { label: 'Aide proportionnée', text: helpSentence(plan.help) },
     { label: 'Question principale', text: plan.question }, { label: 'Signature', text: signature(profile) },
   ], now);
+  if(email.text.split(/\s+/).filter(Boolean).length>120)throw new Error('L’email dépasse 120 mots. Allégez le motif, l’aide ou la présentation avant rédaction.');
   const call = draft(plan, profile, 'call', 'Trame pour ouvrir une conversation', [
-    { label: 'Ouverture', text: `Bonjour, ${introduction(profile)} Est-ce que je peux vous expliquer brièvement la raison de mon appel ?` },
+    { label: 'Ouverture', text: `Bonjour, ${introduction(profile)} ${observationExcerpt(plan.motive,120).text} Est-ce que je peux vous expliquer brièvement la raison de mon appel ?` },
     { label: 'Bon interlocuteur', text: 'Si nécessaire : qui s’occupe de la présentation de vos prestations et des demandes reçues ?' },
     { label: 'Motif et périmètre', text: observation }, { label: 'Question de départ', text: plan.question },
     { label: 'Écouter et reformuler', text: 'Laisser la personne répondre, puis reformuler ses mots avant d’aborder une aide possible.' },
@@ -318,5 +319,5 @@ export function validateGeneratedPreparation(plan: ApproachPlan, drafts: Contact
   if (!validateGroundedText([plan.motive, plan.rationale, plan.hypothesis, plan.help, plan.question, plan.nextStep].join('\n'), report, profile)) return false;
   return drafts.every(item => contactDraftSchema.safeParse(item).success && item.reportId === report.id && item.planId === plan.id && item.profileRevision === profile.revision
     && validateGroundedText(`${item.subject}\n${item.text}`, report, profile)
-    && (item.channel !== 'email' || ((item.text.match(/\?/g) || []).length === 1 && !/\b(?:nous avons|notre échange|suite à notre conversation)\b/i.test(item.text))));
+    && (item.channel !== 'email' || (item.text.split(/\s+/).filter(Boolean).length<=120 && (item.text.match(/\?/g) || []).length === 1 && !/\b(?:nous avons|notre échange|suite à notre conversation)\b/i.test(item.text))));
 }

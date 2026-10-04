@@ -202,9 +202,10 @@ const currentBackupSchema = z.object({
 }).strict();
 const campaignVersionSchema = currentBackupSchema.extend({schemaVersion:z.literal(3),campaignData:campaignBackupSchema}).strict();
 const researchVersionSchema = campaignVersionSchema.extend({schemaVersion:z.literal(4)}).strict();
-export const backupSchema = z.discriminatedUnion('schemaVersion', [legacyBackupSchema, currentBackupSchema, campaignVersionSchema, researchVersionSchema], { error: 'Cette sauvegarde doit utiliser le format Brine version 1, 2, 3 ou 4.' }).superRefine((backup, context) => {
+const enrichmentVersionSchema = researchVersionSchema.extend({schemaVersion:z.literal(5)}).strict();
+export const backupSchema = z.discriminatedUnion('schemaVersion', [legacyBackupSchema, currentBackupSchema, campaignVersionSchema, researchVersionSchema, enrichmentVersionSchema], { error: 'Cette sauvegarde doit utiliser le format Brine version 1 à 5.' }).superRefine((backup, context) => {
   checkCampaignRelations(backup, message => context.addIssue({code:'custom',message}));
-  if(backup.schemaVersion===4)backup.campaignData.candidates.forEach((candidate,index)=>{
+  if(backup.schemaVersion===4||backup.schemaVersion===5)backup.campaignData.candidates.forEach((candidate,index)=>{
     if(!/^(?:\d{9})?$/.test(candidate.company.siren)||!/^(?:\d{14})?$/.test(candidate.company.siret)||(candidate.company.siren&&candidate.company.siret&&!candidate.company.siret.startsWith(candidate.company.siren)))context.addIssue({code:'custom',path:['campaignData','candidates',index,'company'],message:'Une identité officielle doit être un vrai SIREN/SIRET cohérent ou rester vide.'});
   });
   const seen = new Set<string>();

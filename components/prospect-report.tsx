@@ -21,9 +21,10 @@ export function PrintReportButton() {
 export function FactVisualEvidence({ fact, expanded = false }: { fact: ResearchFact; expanded?: boolean }) {
   if (!fact.visual) return null;
   const visual = fact.visual;
+  const imageUrl=visual.assetId?`/api/research-assets/${visual.assetId}`:visual.screenshot;
   return <div className="visual-evidence">
     <p className="small muted">{visual.device === 'mobile' ? 'Sur téléphone' : 'Sur ordinateur'} · {visual.element}{visual.viewport ? ` · ${visual.viewport.width} × ${visual.viewport.height} px` : ''}</p>
-    {visual.screenshot && <details className="visual-capture" open={expanded}><summary>Voir la capture du défaut</summary><Image className="visual-evidence-image" src={visual.screenshot} alt={`Constat visuel : ${visual.element}, sur ${visual.device === 'mobile' ? 'téléphone' : 'ordinateur'}, observé le ${reportDate(fact.observedOn)}`} width={visual.viewport?.width || 1280} height={visual.viewport?.height || 900} unoptimized /><a className="open-link print-hidden" href={visual.screenshot} download={'preuve-' + fact.id.replace(/[^a-zA-Z0-9_-]/g, '-') + '.jpg'}>Télécharger la capture pour l’examiner en détail</a></details>}
+    {imageUrl && <details className="visual-capture" open={expanded}><summary>Voir la capture</summary><Image className="visual-evidence-image" src={imageUrl} alt={`Constat visuel : ${visual.element}, sur ${visual.device === 'mobile' ? 'téléphone' : 'ordinateur'}, observé le ${reportDate(fact.observedOn)}`} width={visual.viewport?.width || 1280} height={visual.viewport?.height || 900} unoptimized /><a className="open-link print-hidden" href={imageUrl} download={'preuve-' + fact.id.replace(/[^a-zA-Z0-9_-]/g, '-') + '.jpg'}>Télécharger la capture pour l’examiner en détail</a></details>}
   </div>;
 }
 

@@ -20,17 +20,18 @@ const calendarDate = (value: string) => {
 export const researchDateSchema = text(40).refine(value => !value || calendarDate(value) || (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && calendarDate(value.slice(0, 10)) && Number.isFinite(Date.parse(value))), 'Date de collecte invalide.');
 const factSectionSchema = z.enum(['identity', 'fit', 'presence', 'presentation', 'contact', 'site', 'visibility', 'opportunities']);
 export const researchSourceSchema = z.object({
-  id, provider: z.enum(['registry', 'ademe', 'osm', 'google', 'maps', 'openrouter', 'website', 'pagespeed', 'manual']),
+  id, provider: z.enum(['registry', 'ademe', 'osm', 'google', 'maps', 'openrouter', 'website', 'pagespeed', 'manual', 'browserless']),
   url: nonemptyUrl, title: text(500), excerpt: text(12000), collectedAt: researchDateSchema,
   query: text(1000).optional(), externalId: text(500).optional(),
 }).strict();
 export const researchFactSchema = z.object({
   id, section: factSectionSchema, kind: z.enum(['observed', 'reported', 'hypothesis']),
   sentiment: z.enum(['positive', 'neutral', 'issue']), text: text(12000).min(1), sourceIds: ids,
-  observedOn: researchDateSchema, scope: text(3000), corrected: z.boolean().optional(),
+  observedOn: researchDateSchema, origin:z.enum(['collection','qualification','manual_observation','exchange']).optional(),scope: text(3000), corrected: z.boolean().optional(),
   refutesFactId: id.optional(), visual: visualEvidenceSchema.optional(),
+  review: z.object({state:z.enum(['proposed','confirmed','rejected']),nature:z.enum(['measurement','observation','appraisal']),provenance:z.enum(['render','vision','manual']),reviewedAt:researchDateSchema.optional(),note:text(3000).optional()}).strict().optional(),
 }).strict().superRefine((fact, context) => {
-  if (fact.visual && (fact.section !== 'site' || fact.kind !== 'observed' || fact.sentiment !== 'issue' || !fact.observedOn)) context.addIssue({ code: 'custom', path: ['visual'], message: 'Une observation visuelle doit être un constat daté de l’analyse du site.' });
+  if (fact.visual && (fact.section !== 'site' || fact.kind === 'reported' || !fact.observedOn)) context.addIssue({ code: 'custom', path: ['visual'], message: 'Une observation visuelle doit être un constat daté de l’analyse du site.' });
 });
 export const researchContactSchema = z.object({
   kind: z.enum(['email', 'phone', 'formUrl', 'profileUrl']), value: text(2048).min(1), sourceUrl: nonemptyUrl, sourceId: id.optional(),

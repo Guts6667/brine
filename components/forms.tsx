@@ -1,6 +1,7 @@
 'use client';
+import { DownloadAssetBackup, stageBackupFile } from './assets-backup';
 import { CampaignFields } from './campaign-context';
-import { createContext, useActionState, useContext, useEffect, useId, useRef, useState } from 'react';
+import { startTransition, createContext, useActionState, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode, HTMLInputTypeAttribute } from 'react';
 import { Plus, X, ArrowRight, Check, CalendarDays, Pencil, MessageSquare, StickyNote, ChevronDown, Archive, ShieldOff, RotateCcw, Download, Upload } from 'lucide-react';
 import Link from 'next/link';
@@ -102,10 +103,11 @@ function RestoreConfirmation({json,counts}:{json:string;counts:{companies:number
   return <form action={restoreDispatch} className="restore-preview stack"><h3>Aperçu du fichier</h3><p>{counts.companies} entreprise(s) · {counts.activities} activité(s) · {counts.aiTests} relevé(s) IA · {counts.oppositions} opposition(s)</p><input type="hidden" name="json" value={json}/><label className="check-label"><input type="checkbox" name="confirm" value="yes" required/>Je confirme le remplacement des données par cette sauvegarde.</label><button type="submit" className="button primary" disabled={restoring}>{restoring?'Restauration…':'Confirmer la restauration'}</button><Feedback state={restore}/></form>;
 }
 export function BackupForms() {
-  const [preview,previewDispatch,pending]=useActionState(previewBackupAction,{});
-  return <div className="stack"><a href="/api/backup" className="button primary download-button"><Download size={18}/>Télécharger une sauvegarde JSON</a><hr/>
+  const [preview,previewDispatch,pending]=useActionState(previewBackupAction,{}),[staging,setStaging]=useState(false),[fileError,setFileError]=useState('');
+  async function check(data:FormData){setStaging(true);setFileError('');try{const file=data.get('file');if(!(file instanceof File))throw new Error('Choisissez un fichier.');data.set('file',await stageBackupFile(file));startTransition(()=>previewDispatch(data));}catch(error){setFileError(error instanceof Error?error.message:'Fichier invalide.');}finally{setStaging(false);}}
+  return <div className="stack"><DownloadAssetBackup/><a href="/api/backup" className="open-link">Manifeste JSON seul (les captures restent sur ce compte)</a><hr/>
     <h3>Restaurer une sauvegarde</h3><p className="muted">Le fichier est validé avant toute modification. Le remplacement conserve les oppositions actuelles et crée une sauvegarde préalable privée.</p>
-    <form action={previewDispatch} className="stack"><label className="file-input">Fichier de sauvegarde JSON<input type="file" name="file" accept=".json,application/json" required/></label><button type="submit" className="button secondary" disabled={pending}><Upload size={16}/>{pending?'Validation…':'Vérifier le fichier'}</button><Feedback state={preview}/></form>
+    <form action={check} className="stack"><label className="file-input">Sauvegarde Brine ZIP ou ancien fichier JSON<input type="file" name="file" accept=".zip,.json,application/json,application/zip" required/></label><button type="submit" className="button secondary" disabled={pending||staging}><Upload size={16}/>{pending||staging?'Validation des données et captures…':'Vérifier le fichier'}</button><Feedback state={preview}/>{fileError&&<p className="form-error" role="alert">{fileError}</p>}</form>
     {preview.preview&&preview.json&&<RestoreConfirmation key={preview.previewKey} json={preview.json} counts={preview.preview}/>}
   </div>;
 }

@@ -49,7 +49,7 @@ async function saveContact(page: Page, request: APIRequestContext, id: string, e
 }
 
 async function fillObservation(page: Page, key: string, answer: string, notes?: string, source?: string) {
-  const row = page.getByTestId(`observation-${key}`);
+  const block=page.locator('details').filter({has:page.getByTestId('observation-form')}).last();if(await block.getAttribute('open')===null)await block.locator(':scope > summary').click();const row = page.getByTestId(`observation-${key}`);
   await row.getByRole('combobox').first().selectOption(answer);
   if (notes || source) {
     await row.locator('summary').click();
@@ -78,7 +78,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   const name = 'Brine — qualification documentée';
   const id = await createCompany(page, name);
   const summary = page.getByTestId('qualification-summary');
-  await expect(summary).toContainText('Non évalué');
+  await expect(summary).toContainText('0/100');
   await expect(page.getByTestId('qualification-form').locator('fieldset')).toHaveCount(5);
 
   const mobileNote = 'Le menu recouvre le numéro de téléphone sur un écran de 375 px.';
@@ -98,7 +98,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await observationForm.getByRole('button', { name: 'Enregistrer les observations', exact: true }).click();
   await expect(observationForm.getByRole('status')).toContainText('Observations enregistrées.');
   await expect.poll(async () => (await savedCompany(request, id)).qualification!.observations.items.mobile.notes).toBe(mobileNote);
-  await expect(summary).toContainText('Non évalué');
+  await expect(summary).toContainText('0/100');
   for (const criterion of ['fit', 'problem', 'trigger', 'references', 'access']) {
     await expect(page.getByTestId(`qualification-question-${criterion}`).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();
   }
@@ -151,7 +151,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await page.goto('/prospects?filter=ready');
   await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
   await page.goto('/campagnes/initial');
-  await page.getByRole('link', {name:'Cibler',exact:true}).click();
+  await page.getByText('Ma cible et spécialisation de campagne',{exact:true}).click();
   await page.getByLabel('Commune', { exact: true }).fill('Sète — cible E2E modifiée');
   await page.getByRole('button', { name: 'Enregistrer la campagne', exact: true }).click();
   await expect.poll(async () => (await backup(request)).campaignData!.campaigns.find(c=>c.id==='initial')!.targetCity).toBe('Sète — cible E2E modifiée');
@@ -178,8 +178,8 @@ test('brouillon positif incomplet conservé sans score définitif et sans zéro 
   await choose(page, 'access', 'Aucun canal trouvé après recherche');
   await saveQualification(page, request, id);
   await expect(summary).toContainText('Contact à trouver');
-  await expect(summary).toContainText('0 points confirmés');
-  await expect(summary).not.toContainText('/100');
+  await expect(summary).toContainText('0/100');
+  await expect(summary).toContainText('Qualification en cours');
   await page.goto('/prospects?filter=verify');
   await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
   await page.goto(`/prospects/${id}`);
@@ -190,9 +190,9 @@ test('brouillon positif incomplet conservé sans score définitif et sans zéro 
   await choose(page, 'trigger', 'Aucun déclencheur repéré après recherche');
   await choose(page, 'references', 'Aucune trouvée après vérification');
   await saveQualification(page, request, id);
-  await expect(summary).toContainText('20 points confirmés');
-  await expect(summary).toContainText('3 critères sur 5 renseignés');
-  await expect(summary).not.toContainText('/100');
+  await expect(summary).toContainText('20/100');
+  await expect(summary).toContainText('3/5 critères validés');
+  await expect(summary).toContainText('Qualification en cours');
   await expect(summary).not.toContainText('Priorité haute');
   await page.reload();
   await expect(page.getByTestId('qualification-question-problem').getByRole('radio', { name: 'Un problème concret vérifié', exact: true })).toBeChecked();
@@ -200,9 +200,9 @@ test('brouillon positif incomplet conservé sans score définitif et sans zéro 
   await page.getByLabel('Le problème concret observé', { exact: true }).fill('Le détail de la prestation ne précise pas la zone d’intervention.');
   await page.getByLabel('Date d’observation du problème', { exact: true }).fill(parisDate());
   await saveQualification(page, request, id);
-  await expect(summary).toContainText('35 points confirmés');
-  await expect(summary).toContainText('4 critères sur 5 renseignés');
-  await expect(summary).not.toContainText('/100');
+  await expect(summary).toContainText('35/100');
+  await expect(summary).toContainText('4/5 critères validés');
+  await expect(summary).toContainText('Qualification en cours');
   expect((await savedCompany(request, id)).qualification!.answers.access.answer).toBe('unknown');
 });
 
@@ -220,7 +220,7 @@ test('après échange : budget inconnu permis, passage manuel et opposition bloq
   expect(saved.stage).toBe('À étudier');
   expect(saved.nextAction).toBeNull();
   expect(saved.qualification!.afterExchange.budget).toBe('not_discussed');
-  await expect(page.getByTestId('qualification-summary')).toContainText('Non évalué');
+  await expect(page.getByTestId('qualification-summary')).toContainText('0/100');
   await expect(form).toContainText('Le budget de la solution discutée reste à vérifier.');
   await page.getByRole('button', { name: 'Passer à Opportunité qualifiée', exact: true }).click();
   await expect.poll(async () => (await savedCompany(request, id)).stage).toBe('Opportunité qualifiée');

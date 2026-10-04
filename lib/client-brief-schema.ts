@@ -1,0 +1,5 @@
+import { z } from 'zod';
+import { researchFactSchema,researchSourceSchema,providerProfileSchema } from './research-schemas';
+import { comparisonSchema } from './comparison-schema';
+export const clientBriefSchema=z.object({version:z.literal(1),template:z.literal('pickles-client-v1'),id:z.string().max(128),campaignId:z.string().max(128),companyId:z.string().max(128),createdAt:z.iso.datetime(),profile:providerProfileSchema,companyName:z.string().max(180),website:z.string().max(2000),targetRevision:z.number().int().positive(),situation:z.string().max(1500),positives:z.string().max(1000),points:z.array(z.object({fact:researchFactSchema,text:z.string().min(1).max(1200),effect:z.string().max(1000),help:z.string().max(1000)})).min(1).max(3),actions:z.array(z.string().min(1).max(700)).min(1).max(2),invitation:z.string().min(1).max(700),sources:z.array(researchSourceSchema).max(20),comparison:comparisonSchema.nullable(),fingerprint:z.string().regex(/^[a-f0-9]{64}$/),reviewed:z.literal(true)}).strict();
+export type ClientBrief=z.infer<typeof clientBriefSchema>;

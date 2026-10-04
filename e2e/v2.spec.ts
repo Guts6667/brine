@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import type { Backup } from '../lib/types';
-import { openFactSection, openContactChoices } from './report-helpers';
+import { openFactSection, openContactChoices, confirmFact } from './report-helpers';
 
 async function backup(request: APIRequestContext): Promise<Backup> {
   const response = await request.get('/api/backup');
@@ -9,7 +9,7 @@ async function backup(request: APIRequestContext): Promise<Backup> {
 }
 async function restore(page: Page, baseline: Backup, discardedRunId?: string) {
   await page.goto('/sauvegarde');
-  await page.getByLabel('Fichier de sauvegarde JSON', { exact: true }).setInputFiles({ name: 'baseline-v2.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(baseline)) });
+  await page.getByLabel('Sauvegarde Brine ZIP ou ancien fichier JSON', { exact: true }).setInputFiles({ name: 'baseline-v2.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(baseline)) });
   await page.getByRole('button', { name: 'Vérifier le fichier', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Je confirme le remplacement des données par cette sauvegarde.', exact: true }).check();
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
@@ -78,16 +78,16 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     await expect(dossier.getByRole('heading', { name: 'Analyse du site', exact: true })).toBeVisible();
     await dossier.getByRole('heading', { name: 'Analyse du site', exact: true }).click();
     await expect(dossier.getByText('Aucun site identifié ; aucun audit de site réalisé.', { exact: true })).toBeVisible();
-    await dossier.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
+    await confirmFact(page,'social-fact-8');await dossier.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
     await openContactChoices(page);
     await page.getByRole('checkbox', { name: /04 00 00 01 23/ }).check();
-    await page.getByRole('button', { name: 'Garder pour préparer un contact', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Atelier Social Démo', exact: true })).not.toBeVisible();
+    await page.getByRole('button', { name: 'Valider le prospect', exact: true }).click();
+    await expect.poll(async()=>(await backup(request)).campaignData!.candidates.find(c=>c.id===social.id)!.status).toBe('accepted');
     const accepted = await backup(request), company = accepted.companies.find(company => company.name === 'Atelier Social Démo')!;
     expect(company).toBeTruthy(); expect(company.contact.phone).toBe('04 00 00 01 23');
     const participation = accepted.campaignData!.participations.find(participation => participation.companyId === company.id && participation.campaignId === campaignId)!;
     expect(participation.qualification.answers.fit.answer).toBe('unknown');
-    await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Préparer$/ }).click();
+    await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Contacter et suivre$/ }).click();
     await expect(page.getByRole('heading', { name: 'Préparer votre conversation', exact: true })).toBeVisible();
     await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('social-fact-8');
     await page.getByRole('button', { name: 'Proposer un plan pour cette preuve', exact: true }).click();
@@ -135,9 +135,9 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     expect(result.stage).not.toBe('En échange');
     await page.goto(`/campagnes/rapports/${company.id}?campagne=${campaignId}`);
     await expect(page.getByRole('heading', { name: 'Dossier complet · Atelier Social Démo', exact: true })).toBeVisible();
-    for (let index = 0; index < 12; index++) await expect(page.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible();
+    for (let index = 0; index < 12; index++) await expect(page.getByTestId('prospect-report').locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible();
     await page.emulateMedia({ media: 'print' });
-    for (let index = 0; index < 12; index++) await expect(page.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible();
+    for (let index = 0; index < 12; index++) await expect(page.getByTestId('prospect-report').locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Toutes les sources et leurs extraits', exact: true })).toBeVisible();
     await page.screenshot({ path: 'test-results/v2-complete-report.png', fullPage: true });
     await page.emulateMedia({ media: 'screen' });
@@ -176,7 +176,7 @@ test('V2 — revue mobile 390 px, tous les constats et reprise sans débordement
     await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
     await openFactSection(page, 'social-fact-0');
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-    for (let index = 0; index < 12; index++) { await openFactSection(page, `social-fact-${index}`); await expect(page.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible(); }
+    for (let index = 0; index < 12; index++) { await openFactSection(page, `social-fact-${index}`); await expect(page.getByTestId('prospect-report').locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible(); }
     await page.locator('.review-decisions').scrollIntoViewIfNeeded();
     const commands = await page.locator('.review-decisions').boundingBox();
     expect(commands).toBeTruthy(); expect(commands!.y).toBeGreaterThanOrEqual(0);
@@ -185,8 +185,8 @@ test('V2 — revue mobile 390 px, tous les constats et reprise sans débordement
     await page.goto('/');
     await expect(page.locator('.preparation-waiting').filter({ hasText: 'V2 — mobile' }).getByRole('link', { name: 'Examiner →', exact: true })).toBeVisible();
     await page.goto(`/campagnes/${campaignId}`);
-    await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Examiner$/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/campagnes/lots/${runId}`));
+    await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Qualifier$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/campagnes/${campaignId}/qualification`));
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
   } finally { await restore(page, baseline, discardedRunId); }
 });

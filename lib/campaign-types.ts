@@ -13,6 +13,7 @@ export interface Participation {
   qualification: QualificationData; nextAction: NextAction | null;
   approach: string; findingIds: string[]; revision: number; updatedAt: string;
   readiness?: ContactReadiness; plan?: ApproachPlan; planHistory?: ApproachPlan[]; drafts?: ContactDraft[]; contactEvents?: ContactEvent[];
+  qualificationEnrichment?: import('./qualification-enrichment').QualificationEnrichment;
 }
 export type CampaignCompany = Company & { campaignId: string; campaignName: string; participationRevision: number; approach: string; findingIds: string[]; readiness?: ContactReadiness; plan?: ApproachPlan; planHistory?: ApproachPlan[]; drafts?: ContactDraft[]; contactEvents?: ContactEvent[] };
 export type RunStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
@@ -28,6 +29,8 @@ export interface DiscoveryCandidate {
   websites: WebsiteProposal[]; website: string; html: SiteAnalysis | null; mobile: SiteAnalysis | null;
   htmlError: string; mobileError: string; attempts: Record<string, number>; revision: number;
   dedupeKey?: string; research?: ResearchData;
+  qualificationDraft?: QualificationData;
+  qualificationEnrichment?: import('./qualification-enrichment').QualificationEnrichment;
 }
 export interface CampaignBackupData {
   campaigns: Campaign[]; participations: Participation[]; runs: DiscoveryRun[];
@@ -36,4 +39,7 @@ export interface CampaignBackupData {
   sourceIdentities?: Array<{ provider: string; externalId: string; companyId: string }>;
   providerProfile?: ProviderProfile;
   corrections?: ResearchCorrection[];
+  assets?: import('./research-assets').AssetManifest[];
+  comparisons?: import('./comparison').ComparisonSnapshot[];
+  clientBriefs?: import('./client-brief').ClientBrief[];
 }

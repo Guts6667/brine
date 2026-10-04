@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import type { Backup } from '../lib/types';
+import JSZip from 'jszip';
 
 const testPassword = 'brine-browser-test-password';
 const origin = 'http://127.0.0.1:3200';
@@ -17,7 +18,8 @@ test.describe('accès privé', () => {
       await expect(page.getByRole('button', { name: 'Déconnexion', exact: true })).toHaveCount(0);
     }
 
-    for(const route of ['/api/campaign-runs/unknown','/api/campaign-runs/reconcile'])expect((await page.request.get(route)).status()).toBe(401);
+    for(const route of ['/api/campaign-runs/unknown','/api/campaign-runs/reconcile','/api/research-assets/'+ 'a'.repeat(64),'/api/client-briefs/unknown'])expect((await page.request.get(route)).status()).toBe(401);
+    expect((await page.request.post('/api/client-briefs/preview',{headers:{Origin:origin,'Sec-Fetch-Site':'same-origin'},data:{}})).status()).toBe(401);
     const invalidWorkflow=await page.request.post('/.well-known/workflow/v1/flow',{data:{runId:'unknown'}});expect(invalidWorkflow.status()).toBeGreaterThanOrEqual(400);
     const anonymousBackup = await page.request.get('/api/backup');
     expect(anonymousBackup.status()).toBe(401);
@@ -75,10 +77,11 @@ test.describe('accès privé', () => {
 
     await page.goto('/sauvegarde');
     const pendingDownload = page.waitForEvent('download');
-    await page.getByRole('link', { name: 'Télécharger une sauvegarde JSON', exact: true }).click();
+    await page.getByRole('button', { name: 'Télécharger la sauvegarde complète (ZIP)', exact: true }).click();
     const download = await pendingDownload;
-    expect(download.suggestedFilename()).toMatch(/^brine-\d{4}-\d{2}-\d{2}\.json$/);
-    const downloaded = JSON.parse(await readFile((await download.path())!, 'utf8')) as Backup;
+    expect(download.suggestedFilename()).toMatch(/^brine-\d{4}-\d{2}-\d{2}\.zip$/);
+    const zip=await JSZip.loadAsync(await readFile((await download.path())!));
+    const downloaded = JSON.parse(await zip.file('brine.json')!.async('string')) as Backup;
     expect(downloaded.companies).toEqual(saved.companies);
 
     await page.getByRole('button', { name: 'Déconnexion', exact: true }).click();

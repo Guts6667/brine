@@ -1,5 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { openFactSection, openContactChoices } from './report-helpers';
+import { openFactSection, openContactChoices, confirmFact } from './report-helpers';
 import type { Backup, Company } from '../lib/types';
 import type { DiscoveryCandidate } from '../lib/campaign-types';
 
@@ -11,7 +11,7 @@ async function backup(request: APIRequestContext): Promise<Backup> {
 
 async function restore(page: Page, baseline: Backup) {
   await page.goto('/sauvegarde');
-  await page.getByLabel('Fichier de sauvegarde JSON', { exact: true }).setInputFiles({ name: 'v2-regression-baseline.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(baseline)) });
+  await page.getByLabel('Sauvegarde Brine ZIP ou ancien fichier JSON', { exact: true }).setInputFiles({ name: 'v2-regression-baseline.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(baseline)) });
   await page.getByRole('button', { name: 'Vérifier le fichier', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Je confirme le remplacement des données par cette sauvegarde.', exact: true }).check();
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
@@ -54,11 +54,11 @@ async function keep(page: Page, request: APIRequestContext, runId: string, candi
   await page.goto(`/campagnes/lots/${runId}?candidat=${candidate.id}`);
   await expect(page.getByRole('heading', { name: candidate.company.name, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
-  await openFactSection(page, evidenceId);
+  await confirmFact(page,evidenceId);await openFactSection(page, evidenceId);
   await page.locator(`[data-fact-id="${evidenceId}"]`).getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
   await openContactChoices(page);
   await page.getByRole('checkbox', { name: new RegExp(contact.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).check();
-  await page.getByRole('button', { name: 'Garder pour préparer un contact', exact: true }).click();
+  await page.getByRole('button', { name: 'Valider le prospect', exact: true }).click();
   await expect(page).toHaveURL(/filtre=review/);
   await expect.poll(async () => (await backup(request)).campaignData!.candidates.find(item => item.id === candidate.id)?.status).toBe('accepted');
   const accepted = await backup(request), companyId = accepted.campaignData!.candidates.find(item => item.id === candidate.id)!.companyId;
@@ -127,7 +127,7 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     expect(preparedA.plan!.question).toBe(question);
     expect(preparedA.drafts!.every(draft => draft.planId === preparedA.plan!.id)).toBe(true);
     await page.getByRole('navigation', { name: 'Préparation du contact', exact: true }).getByRole('button', { name: 'Appel', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Copier pour contacter manuellement', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Copier pour contacter manuellement', exact: true }),await page.locator('.contact-workspace').innerText()).toBeEnabled();
     await expect(page.getByRole('link', { name: 'Composer le numéro professionnel', exact: true })).toBeVisible();
 
     // B has a sourced email; an unsaved text or subject must not be presented
@@ -323,7 +323,7 @@ test('V2 P1 — contacts réellement effectués sans préparation et opposition 
     // baseline, since production restoration correctly preserves oppositions.
     if (companyId && (await backup(request)).companies.find(company => company.id === companyId)?.oppositionActive) {
       await page.goto(`/prospects/${companyId}?campagne=${cleanupCampaignId}`);
-      await page.getByText('Qualification détaillée et outils complémentaires', { exact: true }).click();
+            await page.getByText('Observations, échanges et outils complémentaires', { exact: true }).click();
       await page.getByText('Archivage et opposition', { exact: true }).click();
       await page.getByRole('checkbox', { name: 'Je confirme la levée de l’opposition et la réactivation du contact.', exact: true }).check();
       await page.getByRole('button', { name: 'Réactiver explicitement le contact', exact: true }).click();

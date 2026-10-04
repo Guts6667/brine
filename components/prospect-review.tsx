@@ -29,6 +29,8 @@ type Props = {
   canReview: boolean;
   offerEditor?: ReactNode;
   visualObservation?: ReactNode;
+  qualification?: ReactNode;
+  decisionReturnTo?: string;
 };
 
 function InsightCard({ insight, report, selectedIds, eligibleIds, editable, pending, onSelect }: {
@@ -58,11 +60,12 @@ function InsightCard({ insight, report, selectedIds, eligibleIds, editable, pend
   </article>;
 }
 
-export function ProspectReview({ candidateId, revision, report, insights, contacts, selectedIds: initialIds, selectedContactIndexes, eligibleIds, initialApproach, campaignId, prepareHref, companyHref, savedContactValues, retained, archived, canReview, offerEditor, visualObservation }: Props) {
+export function ProspectReview({ candidateId, revision, report, insights, contacts, selectedIds: initialIds, selectedContactIndexes, eligibleIds, initialApproach, campaignId, prepareHref, companyHref, savedContactValues, retained, archived, canReview, offerEditor, visualObservation, qualification, decisionReturnTo }: Props) {
   const [state, dispatch, pending] = useActionState(reviewCandidateAction, {});
+  const [unsavedError, setUnsavedError] = useState('');
   const [editing, setEditing] = useState(!retained);
   const [draftIds, setSelectedIds] = useState(initialIds);
-  const validFacts = new Set(report.facts.filter(fact => !fact.corrected && fact.kind !== 'hypothesis' && fact.sourceIds.length && fact.sourceIds.every(id => report.sources.some(source => source.id === id))).map(fact => fact.id));
+  const validFacts = new Set(report.facts.filter(fact => !fact.corrected && fact.review?.state !== 'rejected' && fact.kind !== 'hypothesis' && fact.sourceIds.length && fact.sourceIds.every(id => report.sources.some(source => source.id === id))).map(fact => fact.id));
   const selectedIds = draftIds.filter(id => validFacts.has(id));
   const [contactIndexes, setContactIndexes] = useState(selectedContactIndexes);
   const [note, setNote] = useState(initialApproach);
@@ -111,32 +114,41 @@ export function ProspectReview({ candidateId, revision, report, insights, contac
       {!topContacts.length && <span className="review-unknown">Email et téléphone à compléter</span>}
     </div>
 
-    {retained && !archived && <div className="review-saved-state"><div><strong><Check size={17} aria-hidden="true" /> Entreprise gardée dans la campagne</strong><p>{initialIds.length ? `${initialIds.length} preuve(s) enregistrée(s).` : 'Aucun constat choisi pour le moment.'} La prochaine étape prépare votre premier contact.</p></div><div className="button-row">{prepareHref && <Link className="button primary" href={prepareHref}>Préparer ce contact <ArrowRight size={16} aria-hidden="true" /></Link>}<button type="button" className="button text-button" onClick={() => setEditing(!editing)}>{editing ? 'Fermer la modification' : 'Modifier mes choix'}</button></div></div>}
+    {retained && !archived && <div className="review-saved-state"><div><strong><Check size={17} aria-hidden="true" /> Prospect validé dans la campagne</strong><p>{initialIds.length ? `${initialIds.length} preuve(s) enregistrée(s).` : 'Aucun constat choisi pour le moment.'} Vous pouvez continuer la qualification ou préparer le premier contact.</p></div><div className="button-row">{prepareHref && <Link className="button primary" href={prepareHref}>Préparer ce contact <ArrowRight size={16} aria-hidden="true" /></Link>}<button type="button" className="button text-button" onClick={() => setEditing(!editing)}>{editing ? 'Fermer la modification' : 'Modifier mes choix'}</button></div></div>}
     {archived && <p className="review-status-note">Ce prospect a été retiré de la campagne. Son dossier reste consultable ; vous pouvez le réintégrer en bas de la fiche.</p>}
-    {insights.offer.status !== 'ready' && <div className="review-offer-needed"><strong>{insights.offer.status === 'missing' ? 'Précisez d’abord ce que vous proposez' : 'Le lien avec votre offre reste à préciser'}</strong><p>{insights.offer.message}</p>{offerEditor || <Link href={offerHref} className="button secondary">Préciser mon offre <ArrowRight size={15} aria-hidden="true" /></Link>}</div>}
+    {insights.offer.status !== 'ready' && <details className="review-secondary-detail"><summary>Spécialiser l’offre pour cette campagne (facultatif)</summary><p>Pickles Studio : sites internet, refontes, améliorations UX/UI et applications.</p>{offerEditor || <Link href={offerHref} className="button secondary">Personnaliser la campagne <ArrowRight size={15} aria-hidden="true" /></Link>}</details>}
 
-    <form action={dispatch} className="review-form" aria-busy={pending}>
+    {qualification}
+
+    <form action={dispatch} className="review-form" aria-busy={pending} onSubmit={event => {
+      const dirty = document.querySelector<HTMLElement>('[data-qualification-dirty="true"]');
+      if (dirty) {
+        event.preventDefault(); setUnsavedError('Enregistrez d’abord votre qualification pour conserver vos réponses avec cette décision.');
+        dirty.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
+      } else setUnsavedError('');
+    }}>
       <input type="hidden" name="candidateId" value={candidateId} />
       <input type="hidden" name="revision" value={revision} />
       <input type="hidden" name="selectionComplete" value="yes" />
-      {retained && <input type="hidden" name="returnTo" value="candidate" />}
+      {decisionReturnTo ? <input type="hidden" name="returnTo" value={decisionReturnTo}/> : retained && <input type="hidden" name="returnTo" value="candidate" />}
       {selectedIds.filter(id => report.facts.some(fact => fact.id === id)).map(id => <input type="hidden" name="findingId" key={id} value={id} />)}
       {contactIndexes.map(index => <input type="hidden" name="contactIndex" key={index} value={index} />)}
-      <div className="review-priorities" id={'review-points-' + candidateId}>
+      <details className="review-legacy-details" open={!qualification}><summary>Autres analyses et pistes d’intervention</summary><div className="review-priorities" id={'review-points-' + candidateId}>
         <div className="review-block-heading"><h3>{primaryInsights.length ? 'Les points à regarder en premier' : 'Ce que le dossier permet de savoir'}</h3><p>{insights.nextAction.explanation}</p></div>
         {primaryInsights.length ? primaryInsights.map(insight => <InsightCard key={insight.id} insight={insight} report={report} selectedIds={selectedIds} eligibleIds={eligibleIds} editable={editable} pending={pending} onSelect={chooseInsight} />) : <div className="review-no-finding"><p>Aucun défaut précis n’est documenté pour l’instant.</p><p>{insights.identity.website ? 'Ouvrez le site et regardez si ses pages sont lisibles, si les réalisations s’affichent et si l’accès au contact fonctionne.' : 'Confirmez leur site ou consultez leur profil public pour comprendre comment ils présentent leur activité.'}</p></div>}
         {otherInsights.length > 0 && <details className="review-more-insights"><summary>Autres observations ({otherInsights.length})</summary><div className="details-body">{otherInsights.map(insight => <InsightCard key={insight.id} insight={insight} report={report} selectedIds={selectedIds} eligibleIds={eligibleIds} editable={editable} pending={pending} onSelect={chooseInsight} />)}</div></details>}
         {insights.positives.length > 0 && <details className="review-positives"><summary>Ce qui fonctionne ou est déjà présenté ({insights.positives.length})</summary><div className="details-body">{insights.positives.map(insight => <InsightCard key={insight.id} insight={insight} report={report} selectedIds={selectedIds} eligibleIds={eligibleIds} editable={editable} pending={pending} onSelect={chooseInsight} />)}</div></details>}
-      </div>
+      </div></details>
 
       {editable && <div className="review-choice-area">
         <div className="review-block-heading"><h3>{retained ? 'Mettre à jour mes choix' : 'Que faire de cette entreprise ?'}</h3><p>{selectedIds.length ? `${selectedIds.length} preuve(s) choisie(s) pour préparer l’approche.` : 'Choisissez un constat utile, ou gardez la fiche pour approfondir. Vous pourrez compléter la préparation ensuite.'}</p></div>
         <details className="review-contact-choices"><summary>Coordonnées à garder <span>{contactSummary || 'Aucune sélectionnée'}</span></summary><div className="details-body">{storedContacts.length > 0 && <><p className="field-help">Ces coordonnées sont déjà enregistrées et seront conservées.</p>{storedContacts.map(contact => <p key={contact.kind}>{contactLabels[contact.kind]} : {contact.value}{contact.sourceUrl && <> · <a href={contact.sourceUrl} target="_blank" rel="noopener noreferrer">Source</a></>}</p>)}</>}{companyHref && <Link href={companyHref} className="open-link">Modifier les coordonnées sur la fiche →</Link>}{newContacts.length > 0 ? <><p className="field-help">Informations publiques à confirmer avant un contact. Un contact par type sera conservé sur la fiche.</p>{newContacts.map(({ contact, index }) => <label className="review-contact-choice" key={`${contact.kind}:${index}`}><input type="checkbox" checked={contactIndexes.includes(index)} disabled={pending} onChange={event => chooseContact(index, event.target.checked)} /><span><strong>{contactLabels[contact.kind]}</strong>{contact.value}<a href={contact.sourceUrl} target="_blank" rel="noopener noreferrer">Voir la source <ExternalLink size={12} aria-hidden="true" /></a></span></label>)}</> : !storedContacts.length && <p>Aucune coordonnée extraite. Vous pourrez en ajouter sur la fiche.</p>}</div></details>
         <details className="review-personal-note"><summary>Ajouter une note personnelle (facultatif)</summary><div className="field"><label htmlFor={'candidate-approach-' + candidateId}>Ce que je veux approfondir</label><textarea id={'candidate-approach-' + candidateId} name="approach" value={note} onChange={event => setNote(event.target.value)} maxLength={4000} disabled={pending} placeholder="Ex. Vérifier le comparateur de photos sur téléphone avant de proposer une correction." /></div></details>
         {state.error && <p className="form-error" role="alert">{state.error}</p>}
+        {unsavedError && <p className="form-error" role="alert">{unsavedError} <a href="#qualification-heading">Revenir à la qualification</a></p>}
         {pending && <p role="status" className="field-help">Enregistrement de votre décision…</p>}
-        <div className="button-row review-decisions"><button type="submit" name="decision" value="accept" className="button primary" disabled={pending}>{retained ? 'Enregistrer mes choix' : 'Garder pour préparer un contact'}</button><button type="submit" name="decision" value="verify" className="button secondary" disabled={pending}>Plus tard</button><button type="submit" name="decision" value="reject" className="button text-button" disabled={pending}>{retained ? 'Écarter ce résultat' : 'Écarter'}</button></div>
-        <p className="review-decision-help">Garder ajoute la fiche et vos choix à la campagne. La préparation de l’email ou de l’appel vient ensuite.</p>
+        <div className="button-row review-decisions"><button type="submit" name="decision" value="accept" className="button primary" disabled={pending}>{retained ? 'Enregistrer mes choix' : 'Valider le prospect'}</button><button type="submit" name="decision" value="verify" className="button secondary" disabled={pending}>Plus tard</button><button type="submit" name="decision" value="reject" className="button text-button" disabled={pending}>{retained ? 'Écarter ce résultat' : 'Écarter'}</button></div>
+        <p className="review-decision-help">La validation est votre décision. Elle conserve la qualification, les preuves et vos choix dans la campagne, même si des critères restent à compléter.</p>
       </div>}
     </form>
 

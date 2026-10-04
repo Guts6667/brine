@@ -61,6 +61,7 @@ export const visualEvidenceSchema = z.object({
   element: safeText(300).min(1, 'Indiquez l’élément concerné.'),
   viewport: z.object({ width: z.number().int().min(240).max(10000), height: z.number().int().min(240).max(10000) }).strict().optional(),
   screenshot: z.string().max(screenshotPrefix.length + Math.ceil(MAX_VISUAL_SCREENSHOT_BYTES / 3) * 4).refine(isValidVisualScreenshot, 'La capture doit être un fichier JPEG valide de 100 Ko maximum.').optional(),
+  assetId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict();
 
 const calendarDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T12:00:00Z`)) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;

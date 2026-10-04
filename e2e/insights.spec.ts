@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { confirmFact,openLegacyInsights } from './report-helpers';
 import type { Backup } from '../lib/types';
 
 const observation = 'Dans ce jeu de test, un grand ovale sombre recouvre les photos des cartes Avant / après et masque une partie des réalisations.';
@@ -15,7 +16,7 @@ async function backup(request: APIRequestContext): Promise<Backup> {
 
 async function restore(page: Page, baseline: Backup) {
   await page.goto('/sauvegarde');
-  await page.getByLabel('Fichier de sauvegarde JSON', { exact: true }).setInputFiles({ name: 'insights-baseline.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(baseline)) });
+  await page.getByLabel('Sauvegarde Brine ZIP ou ancien fichier JSON', { exact: true }).setInputFiles({ name: 'insights-baseline.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(baseline)) });
   await page.getByRole('button', { name: 'Vérifier le fichier', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Je confirme le remplacement des données par cette sauvegarde.', exact: true }).check();
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
@@ -83,7 +84,7 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
     await expect(page.getByRole('heading', { name: candidate.company.name, exact: true })).toBeVisible();
     const review = page.getByTestId('prospect-review');
     const dossier = page.getByTestId('prospect-report');
-    const decision = review.getByRole('button', { name: 'Garder pour préparer un contact', exact: true });
+    const decision = review.getByRole('button', { name: 'Valider le prospect', exact: true });
     await expect(decision).toBeVisible();
     await expect(dossier.getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
     await expect(dossier.getByRole('heading', { name: 'Preuves et méthode', exact: true })).not.toBeVisible();
@@ -108,6 +109,7 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
     await page.goto(reviewUrl);
     const resumed = await openVisualForm(page);
     await expect(resumed.getByLabel('Ce que vous observez', { exact: true })).toHaveValue(observation);
+    await confirmFact(page,'quote404');await openLegacyInsights(page);
     const initialCard = page.getByTestId('priority-insight').filter({ hasText: 'Le lien Demander un devis renvoie HTTP 404.' });
     await initialCard.getByRole('button', { name: 'Choisir ce constat', exact: true }).click();
     await review.locator('.review-personal-note > summary').click();
@@ -123,7 +125,7 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
     const saved = await backup(request), updated = saved.campaignData!.candidates.find(value => value.id === candidate.id)!;
     const fact = updated.research!.facts.find(value => value.visual)!;
     expect(fact).toMatchObject({ section: 'site', kind: 'observed', sentiment: 'issue', text: observation, observedOn: today(), visual: { pageUrl: candidate.website, element, category: 'overlap', device: 'desktop' } });
-    expect(fact.visual!.screenshot).toMatch(/^data:image\/jpeg;base64,/);
+    expect(fact.visual!.assetId).toMatch(/^[a-f0-9]{64}$/);
     expect(fact.scope).toContain('Observation visuelle humaine');
     expect(fact.scope).toContain('aucune perte de clients');
     const source = updated.research!.sources.find(value => fact.sourceIds.includes(value.id))!;
@@ -139,7 +141,7 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
     await initialCard.getByRole('button', { name: 'Retirer ce choix', exact: true }).click();
     await card.getByRole('button', { name: 'Choisir ce constat', exact: true }).click();
     await expect(card.getByRole('button', { name: 'Retirer ce choix', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await page.getByRole('button', { name: 'Garder pour préparer un contact', exact: true }).click();
+    await page.getByRole('button', { name: 'Valider le prospect', exact: true }).click();
     await expect(page).toHaveURL(/filtre=review/);
     const kept = await backup(request), companyId = kept.campaignData!.candidates.find(value => value.id === candidate.id)!.companyId!;
     const participation = kept.campaignData!.participations.find(value => value.companyId === companyId && value.campaignId === campaignId)!;
@@ -196,7 +198,7 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
   }
 });
 
-test('Examiner — une offre manquante appelle une action claire, puis utilise l’offre actualisée sans nouvelle collecte', async ({ page, request }) => {
+test('Qualifier — spécialisation facultative et profil personnalisé conservé sans nouvelle collecte', async ({ page, request }) => {
   test.setTimeout(120_000);
   const baseline = await backup(request);
   try {
@@ -204,9 +206,10 @@ test('Examiner — une offre manquante appelle une action claire, puis utilise l
     const { campaignId, runId, candidate, reviewUrl } = await launch(page, request, 'Interface — offre à préciser', false);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(reviewUrl);
-    await expect(page.getByText('Précisez d’abord ce que vous proposez', { exact: true })).toBeVisible();
+    await expect(page.getByText('Précisez d’abord ce que vous proposez', { exact: true })).not.toBeVisible();
+    await page.getByText('Spécialiser l’offre pour cette campagne (facultatif)',{exact:true}).click();
     await expect(page.getByLabel('Ce que je propose dans cette campagne', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Garder pour préparer un contact', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Valider le prospect', exact: true })).toBeVisible();
     await expect(page.getByTestId('prospect-report').getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('button', { name: 'Choisir ce constat', exact: true })).not.toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
@@ -215,7 +218,7 @@ test('Examiner — une offre manquante appelle une action claire, puis utilise l
     await expect.poll(async () => (await backup(request)).campaignData!.campaigns.find(value => value.id === campaignId)!.targetOffer).toBe('Sites web et correction ciblée des interfaces');
     await expect(page).toHaveURL(new RegExp(`/campagnes/lots/${runId}\\?candidat=${candidate.id}$`));
     await expect(page.getByText('Précisez d’abord ce que vous proposez', { exact: true })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'Choisir ce constat', exact: true }).first()).toBeVisible();
+    await confirmFact(page,'quote404');await openLegacyInsights(page);await expect(page.getByRole('button', { name: 'Choisir ce constat', exact: true }).first()).toBeVisible();
     const after = await backup(request), unchanged = after.campaignData!.candidates.find(value => value.id === candidate.id)!;
     expect(unchanged.html).toEqual(candidate.html);
     expect(unchanged.attempts).toEqual(candidate.attempts);
@@ -232,8 +235,8 @@ test('Examiner — une offre manquante appelle une action claire, puis utilise l
     await page.getByRole('button', { name: 'Enregistrer mon profil', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Votre offre et votre signature sont enregistrées.' })).toBeVisible();
     await page.goto(reviewUrl);
-    await page.getByTestId('priority-insight').filter({ hasText: 'Le lien Demander un devis renvoie HTTP 404.' }).getByRole('button', { name: 'Choisir ce constat', exact: true }).click();
-    await page.getByRole('button', { name: 'Garder pour préparer un contact', exact: true }).click();
+    await openLegacyInsights(page);await page.getByTestId('priority-insight').filter({ hasText: 'Le lien Demander un devis renvoie HTTP 404.' }).getByRole('button', { name: 'Choisir ce constat', exact: true }).click();
+    await page.getByRole('button', { name: 'Valider le prospect', exact: true }).click();
     await expect(page).toHaveURL(/filtre=review/);
     const kept = await backup(request), companyId = kept.campaignData!.candidates.find(value => value.id === candidate.id)!.companyId!;
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${companyId}`);

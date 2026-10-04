@@ -81,7 +81,7 @@ export async function saveQualificationAction(id:string,_:ActionState,data:FormD
     const store=await context(data),input=qualificationInputSchema.parse(parsePayload(data));
     const confirmTarget=str(data,'confirmTarget')==='yes';
     const expectedTarget=confirmTarget?targetSnapshotSchema.parse(parseJsonField(data,'expectedTarget')):undefined;
-    const company=await store.saveQualification(id,input,confirmTarget,expectedTarget);
+    const company=str(data,'candidateId')?await(await getCampaignRepository()).saveCandidateQualification(str(data,'candidateId'),Number(str(data,'participationRevision')),input,'answers',confirmTarget,expectedTarget):await store.saveQualification(id,input,confirmTarget,expectedTarget);
     const evaluation=evaluateQualification(company,await store.getSettings(),parisToday()); refresh(id);
     return {ok:true,message:evaluation.complete?`Qualification enregistrée : ${evaluation.score}/100 · ${evaluation.decision}.`:`Brouillon enregistré : ${evaluation.confirmedPoints} points confirmés · ${evaluation.completedCount} critères sur 5 complets.`};
   } catch(error) { return failure(error); }
@@ -92,11 +92,11 @@ function parseJsonField(data:FormData,name:string):unknown {
   try {return JSON.parse(value);} catch {throw new Error('Le formulaire a changé. Rechargez la fiche avant de réessayer.');}
 }
 export async function saveObservationsAction(id:string,_:ActionState,data:FormData):Promise<ActionState> {
-  try { await authorize(); await (await context(data)).saveObservations(id,observationsSchema.parse(parsePayload(data))); refresh(id); return {ok:true,message:'Observations enregistrées. Confirmez séparément les réponses aux cinq critères.'}; }
+  try { await authorize(); const input=observationsSchema.parse(parsePayload(data));if(str(data,'candidateId'))await(await getCampaignRepository()).saveCandidateQualification(str(data,'candidateId'),Number(str(data,'participationRevision')),input,'observations');else await (await context(data)).saveObservations(id,input); refresh(id); return {ok:true,message:'Observations enregistrées. Confirmez séparément les réponses aux cinq critères.'}; }
   catch(error) { return failure(error); }
 }
 export async function saveAfterExchangeAction(id:string,_:ActionState,data:FormData):Promise<ActionState> {
-  try { await authorize(); const company=await (await context(data)).saveAfterExchange(id,afterExchangeInputSchema.parse(parsePayload(data))); refresh(id); return {ok:true,message:`Échange enregistré : ${evaluateAfterExchange(company).label}. L’étape commerciale reste à votre choix.`}; }
+  try { await authorize(); const input=afterExchangeInputSchema.parse(parsePayload(data)),company=str(data,'candidateId')?await(await getCampaignRepository()).saveCandidateQualification(str(data,'candidateId'),Number(str(data,'participationRevision')),input,'exchange'):await (await context(data)).saveAfterExchange(id,input); refresh(id); return {ok:true,message:`Échange enregistré : ${evaluateAfterExchange(company).label}. L’étape commerciale reste à votre choix.`}; }
   catch(error) { return failure(error); }
 }
 export async function qualifyOpportunityAction(id:string,_:ActionState,_data:FormData):Promise<ActionState> {
@@ -155,7 +155,7 @@ export async function previewBackupAction(_: ActionState, data: FormData): Promi
   try {
     await authorize(); const file = data.get('file');
     if (!(file instanceof File) || !file.size) throw new Error('Choisissez un fichier JSON.');
-    if (file.size > 5 * 1024 * 1024) throw new Error('La sauvegarde dépasse la limite de 5 Mo.');
+    if (file.size > 4 * 1024 * 1024) throw new Error('La sauvegarde dépasse la limite de 4 Mo.');
     const json = await file.text(); const preview = await getStore().previewBackup(parseBackup(json));
     return {ok:true,preview,json,previewKey:randomUUID(),message:'Fichier valide. Vérifiez les quantités avant de confirmer.'};
   } catch(error) { return failure(error); }
@@ -164,7 +164,7 @@ export async function restoreBackupAction(_: ActionState, data: FormData): Promi
   try {
     await authorize();
     if (str(data,'confirm') !== 'yes') throw new Error('Confirmez le remplacement avant de restaurer.');
-    const json = str(data,'json'); if (json.length > 5*1024*1024) throw new Error('La sauvegarde dépasse la limite de 5 Mo.');
+    const json = str(data,'json'); if (json.length > 4*1024*1024) throw new Error('La sauvegarde dépasse la limite de 4 Mo.');
     const result = await getStore().restoreBackup(parseBackup(json),true); await resetCampaignRepository(); refresh();
     return {ok:true,message:`Restauration terminée. ${isCloudStorage()?'La copie précédente est disponible dans Données et préférences.':`Sauvegarde préalable : ${result.backupPath}.`} Oppositions conservées : ${result.preservedOppositions}.`};
   } catch(error) { return failure(error); }

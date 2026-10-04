@@ -1,0 +1,4 @@
+import { z } from 'zod';
+import { researchUrlSchema } from './research-schemas';
+export const comparisonSchema=z.object({id:z.string().max(128),campaignId:z.string().max(128),companyId:z.string().max(128),createdAt:z.iso.datetime(),targetRevision:z.number().int().positive(),queries:z.array(z.object({query:z.string().max(300),location:z.string().max(180),device:z.literal('desktop'),recordedAt:z.iso.datetime(),depth:z.literal(10),results:z.array(z.object({position:z.number().int().min(1).max(10),title:z.string().max(500),url:researchUrlSchema})).max(10)})).max(2),competitors:z.array(z.object({name:z.string().max(180),url:researchUrlSchema,sourceUrl:researchUrlSchema,notes:z.array(z.string().max(2000)).max(8),checkedAt:z.iso.datetime(),confirmed:z.boolean()})).max(2),warnings:z.array(z.string().max(3000)).max(20)}).strict();
+export type ComparisonSnapshot=z.infer<typeof comparisonSchema>;

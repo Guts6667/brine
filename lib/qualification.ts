@@ -202,6 +202,7 @@ export function evaluateQualification(company: QualificationSubject, settings: Q
     }
     reasonsByKey.access.push(a.access.answer === 'generic' ? 'Canal professionnel générique renseigné.' : `Interlocuteur identifié : ${company.contact.name}.`);
   }
+  for(const key of company.qualificationEnrichment?.revalidate||[])missingByKey[key].push('Une preuve a été corrigée ou rejetée : revalider ce critère.');
   const criteria: CriterionEvaluation[] = (Object.keys(QUALIFICATION_RULES.criteria) as CriterionKey[]).map(key => {
     const rule = QUALIFICATION_RULES.criteria[key];
     const option = rule.options.find(item => item.value === a[key].answer)!;

@@ -12,7 +12,7 @@ import { getProviderState, saveProviderState, readResearchCache, saveResearchCac
 
 export const RESEARCH_MODEL = 'google/gemini-3.1-flash-lite';
 const PANEL_LIFETIME = 7 * 24 * 60 * 60 * 1000;
-const GOOGLE_LIFETIME = 24 * 60 * 60 * 1000;
+const GOOGLE_LIFETIME = 7 * 24 * 60 * 60 * 1000;
 export const DISCOVERY_BACKLOG_LIFETIME = 30 * 24 * 60 * 60 * 1000;
 const COLLECTION_CUTOFF_MS = 120_000;
 const MAX_CONTEXT_TOKENS = 1_048_576;
@@ -124,7 +124,7 @@ export async function serpSearch(repo: BudgetRepository, parameters: Record<stri
     const secret = process.env.SERPAPI_API_KEY!; url.searchParams.set('api_key', secret);
     const body = record(sanitisePayload(await boundedProviderJson(url, {}, fetcher), secret));
     if (body.error || record(body.search_metadata).status === 'Error') throw new Error('Recherche Google indisponible. Le quota reste réservé.');
-    return { value: body, actualUsd: 0 };
+    return { value: {...body,brine_retrieved_at:new Date().toISOString()}, actualUsd: 0 };
   });
   await saveResearchCache(repo, cacheKey, value, GOOGLE_LIFETIME); return value;
 }

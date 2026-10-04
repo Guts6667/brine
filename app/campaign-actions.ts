@@ -25,7 +25,8 @@ export async function reviewCandidateAction(_:ActionState,data:FormData):Promise
     const repo=await getCampaignRepository(),candidateId=str(data,'candidateId'),candidate=await repo.getCandidate(candidateId);
     await repo.reviewCandidate(candidateId,Number(str(data,'revision')),decision as 'accept'|'reject'|'verify',data.getAll('findingId').map(String),data.getAll('contactIndex').map(x=>Number(x)),str(data,'approach'),str(data,'selectionComplete')==='yes');
     refresh();const next=(await repo.listCandidates(candidate.runId)).find(c=>['review','needs_site'].includes(c.status));
-    destination=str(data,'returnTo')==='candidate'&&decision==='accept'
+    const run=await repo.getRun(candidate.runId);
+    destination=str(data,'returnTo')===`/campagnes/${run.campaignId}/qualification`?`/campagnes/${run.campaignId}/qualification?decision=${decision}`:str(data,'returnTo')==='candidate'&&decision==='accept'
       ? `/campagnes/lots/${candidate.runId}?filtre=accepted&candidat=${candidateId}&decision=accept`
       : `/campagnes/lots/${candidate.runId}?filtre=review${next?'&candidat='+next.id:''}&decision=${decision}`;
   }catch(error){return fail(error);}

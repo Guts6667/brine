@@ -1,10 +1,10 @@
 import type { SiteAnalysis } from './site-analysis';
 
-export type ResearchProvider = 'registry' | 'ademe' | 'osm' | 'google' | 'maps' | 'openrouter' | 'website' | 'pagespeed' | 'manual';
+export type ResearchProvider = 'registry' | 'ademe' | 'osm' | 'google' | 'maps' | 'openrouter' | 'website' | 'pagespeed' | 'manual' | 'browserless';
 export interface ResearchSource { id: string; provider: ResearchProvider; url: string; title: string; excerpt: string; collectedAt: string; query?: string; externalId?: string }
 export type FactSection = 'identity' | 'fit' | 'presence' | 'presentation' | 'contact' | 'site' | 'visibility' | 'opportunities';
-export interface VisualEvidence { category: 'overlap' | 'overflow' | 'unreadable' | 'broken_image' | 'interaction' | 'other'; device: 'desktop' | 'mobile'; pageUrl: string; element: string; viewport?: { width: number; height: number }; screenshot?: string }
-export interface ResearchFact { id: string; section: FactSection; kind: 'observed' | 'reported' | 'hypothesis'; sentiment: 'positive' | 'neutral' | 'issue'; text: string; sourceIds: string[]; observedOn: string; scope: string; corrected?: boolean; refutesFactId?:string; visual?: VisualEvidence }
+export interface VisualEvidence { category: 'overlap' | 'overflow' | 'unreadable' | 'broken_image' | 'interaction' | 'other'; device: 'desktop' | 'mobile'; pageUrl: string; element: string; viewport?: { width: number; height: number }; screenshot?: string; assetId?: string }
+export interface ResearchFact { id: string; section: FactSection; kind: 'observed' | 'reported' | 'hypothesis'; sentiment: 'positive' | 'neutral' | 'issue'; text: string; sourceIds: string[]; observedOn: string; scope: string; origin?: 'collection' | 'qualification' | 'manual_observation' | 'exchange'; corrected?: boolean; refutesFactId?:string; visual?: VisualEvidence; review?: { state: 'proposed' | 'confirmed' | 'rejected'; nature: 'measurement' | 'observation' | 'appraisal'; provenance: 'render' | 'vision' | 'manual'; reviewedAt?: string; note?: string } }
 export interface ResearchContact { kind: 'email' | 'phone' | 'formUrl' | 'profileUrl'; value: string; sourceUrl: string; sourceId?: string }
 export interface AiPanelResponse { question: string; answer: string; model: string; engine: string; recordedAt: string; sources: ResearchSource[]; valid: boolean; recommendations: Array<{ name: string; city: string; url: string }>; error?: string }
 export interface AiPanel { id: string; targetKey: string; createdAt: string; responses: AiPanelResponse[] }

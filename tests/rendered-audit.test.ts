@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createClient } from '@libsql/client';
+import { Store } from '../lib/db';
+import { CampaignRepository } from '../lib/campaign-repository';
+import { collectRenderedAudit,proposeVisualFindings } from '../lib/rendered-audit';
+import { reserveResearchOperation,runBudgetedResearch,getBudgetOverview,saveProviderState } from '../lib/research-budget';
+import { stableResearchKey } from '../lib/research-providers';
+import { visualCaptureFixture } from './fixtures/visual-capture';
+const noDns=async()=>{},capture={device:'desktop',width:1280,height:900,y:2200,pageUrl:'https://artisan.example/',label:'Avant/après',screenshot:visualCaptureFixture,signals:[{category:'overflow',element:'Page',text:'La largeur du document dépasse celle de l’écran de 120 px.'}]};
+function fixture(){const dir=mkdtempSync(join(tmpdir(),'brine-render-')),path=join(dir,'data.sqlite'),base=new Store(path),repo=new CampaignRepository(createClient({url:`file:${path}`}));return {repo,base,close(){repo.close();base.close();rmSync(dir,{recursive:true,force:true});}};}
+async function env(work:()=>Promise<void>){const prior={BROWSERLESS_API_KEY:process.env.BROWSERLESS_API_KEY,BROWSERLESS_FREE_PLAN_CONFIRMED:process.env.BROWSERLESS_FREE_PLAN_CONFIRMED,OPENROUTER_API_KEY:process.env.OPENROUTER_API_KEY};process.env.BROWSERLESS_API_KEY='test-key';process.env.BROWSERLESS_FREE_PLAN_CONFIRMED='1';process.env.OPENROUTER_API_KEY='test-ai';try{await work();}finally{for(const [key,value] of Object.entries(prior)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}}
+test('render captures below the first viewport retain their exact device, section, assets and proposal state; seven-day cache avoids another charge',()=>env(async()=>{const f=fixture();try{
+ let calls=0;const fetcher:typeof fetch=async(_url,init)=>{calls++;const body=JSON.parse(String(init?.body));assert.match(body.code,/réalisation/);assert.match(String(_url),/timeout=75000/);return Response.json({data:{captures:[capture,{...capture,device:'mobile',width:390,height:844,signals:[]}],warnings:[]}});};
+ const data=await collectRenderedAudit(f.repo,'https://artisan.example/','render-site-1',fetcher,noDns);assert.equal(calls,1);assert.equal(data.facts.filter(f=>f.id.startsWith('capture-')).length,2);assert.ok(data.sources.some(s=>s.excerpt.includes('2200 px')));assert.equal(data.facts.find(f=>f.id.startsWith('measure-'))?.review?.state,'proposed');assert.equal((await f.repo.client.execute('SELECT COUNT(*) n FROM research_assets')).rows[0].n,1);assert.ok(!JSON.stringify(data).includes('base64'));
+ assert.deepEqual(await collectRenderedAudit(f.repo,'https://artisan.example/','different-run-key',fetcher,noDns),data);assert.equal(calls,1);assert.equal((await getBudgetOverview(f.repo)).browserlessUsed,3);const cache=(await f.repo.client.execute('SELECT expiresAt FROM research_cache')).rows[0];assert.ok(Date.parse(String(cache.expiresAt))-Date.now()>6.99*86400000);
+ }finally{f.close();}}));
+test('missing free configuration and failed rendering remain incomplete, without invented site defects or paid retry',()=>env(async()=>{const f=fixture();try{
+ delete process.env.BROWSERLESS_FREE_PLAN_CONFIRMED;let calls=0;const fetcher:typeof fetch=async()=>{calls++;return new Response('unavailable',{status:503});};const fallback=await collectRenderedAudit(f.repo,'https://artisan.example/','unconfigured',fetcher,noDns);assert.equal(fallback.facts.length,0);assert.equal(calls,0);assert.match(fallback.warnings.join(' '),/non vérifié/);
+ process.env.BROWSERLESS_FREE_PLAN_CONFIRMED='1';await assert.rejects(collectRenderedAudit(f.repo,'https://artisan.example/','failed',fetcher,noDns),/incomplet/);await assert.rejects(collectRenderedAudit(f.repo,'https://artisan.example/','failed',fetcher,noDns),/incertain/);assert.equal(calls,1);assert.equal((await getBudgetOverview(f.repo)).browserlessUsed,3);
+ }finally{f.close();}}));
+test('Browserless reservations enforce a single session and retain uncertain units across months and restoration',()=>env(async()=>{const f=fixture();try{
+ await f.repo.bootstrap();
+ const now=new Date('2026-10-05T12:00:00Z');await reserveResearchOperation(f.repo,{key:'a',provider:'browserless',maxUsd:0,quotaUnits:3},now);await assert.rejects(reserveResearchOperation(f.repo,{key:'b',provider:'browserless',maxUsd:0,quotaUnits:3},now),/session/);
+ await f.repo.client.execute("UPDATE research_operations SET status='uncertain',quotaUnits=999 WHERE operationKey='a'");await assert.rejects(reserveResearchOperation(f.repo,{key:'c',provider:'browserless',maxUsd:0,quotaUnits:3},new Date('2026-11-01T12:00:00Z')),/Quota gratuit/);assert.equal((await getBudgetOverview(f.repo,new Date('2026-11-01T12:00:00Z'))).browserlessRemaining,1);
+ const snapshot=f.base.exportBackup();f.base.restoreBackup(snapshot,true);await f.repo.bootstrap();assert.equal((await getBudgetOverview(f.repo,new Date('2026-11-01T12:00:00Z'))).browserlessRemaining,1);await assert.rejects(reserveResearchOperation(f.repo,{key:'after-restore',provider:'browserless',maxUsd:0,quotaUnits:3},new Date('2026-11-01T12:00:00Z')),/Quota gratuit/);
+ }finally{f.close();}}));
+test('vision returns captured proposals, never confirmed facts or invented business effects, and cost is settled once',()=>env(async()=>{const f=fixture();try{
+ const rendering=await collectRenderedAudit(f.repo,'https://artisan.example/','capture',async()=>Response.json({captures:[capture],warnings:[]}),noDns);await saveProviderState(f.repo,'openrouter',{checkedAt:new Date().toISOString(),credentialId:stableResearchKey('test-ai'),valid:true,remaining:5,keyLimit:5,keyReset:'monthly'});
+ let calls=0;const fetcher:typeof fetch=async(_url,init)=>{calls++;const request=JSON.parse(String(init?.body));assert.equal(request.tools,undefined);assert.equal(request.max_tokens,1500);assert.ok(JSON.stringify(request.messages).includes('data:image/jpeg;base64,'));return Response.json({choices:[{message:{content:JSON.stringify({findings:[{captureId:rendering.facts[0].id,category:'overlap',nature:'observation',text:'Le bouton Comparer recouvre une partie des photos utiles.',element:'Comparer'},{captureId:rendering.facts[0].id,category:'other',nature:'appraisal',text:'La hiérarchie des titres est confuse dans cette section.',element:'Titres'},{captureId:rendering.facts[0].id,category:'other',nature:'appraisal',text:'Ce site fait perdre des clients à cette entreprise.',element:'Page'}]})}}],usage:{cost:.001}});};
+ const facts=await proposeVisualFindings(f.repo,rendering,'vision',fetcher);assert.equal(facts.length,2);assert.ok(facts.every(f=>f.kind==='hypothesis'&&f.review?.state==='proposed'));assert.deepEqual(await proposeVisualFindings(f.repo,rendering,'vision',fetcher),facts);assert.equal(calls,1);assert.equal((await getBudgetOverview(f.repo)).spentUsd,.001);
+ }finally{f.close();}}));
