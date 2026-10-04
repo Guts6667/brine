@@ -19,12 +19,24 @@ export async function discoveryWorkflow(id:string,owner:string,epoch:string){
   await dispatchNext();
 }
 async function providers(){if(process.env.BRINE_TEST_FIXTURES==='1'&&process.env.VERCEL!=='1')return (await import('../lib/testing/discovery-fixtures')).discoveryFixtures;return defaultProviders;}
-async function claim(id:string,owner:string,epoch:string){'use step';return (await getCampaignRepository()).claimRun(id,owner,epoch);}
-async function populate(run:DiscoveryRun,epoch:string){'use step';const repo=await getCampaignRepository();await populateRun(repo,run,epoch,await providers());return (await repo.listCandidates(run.id)).map(c=>c.id);}
-async function html(run:DiscoveryRun,id:string,epoch:string){'use step';return processCandidate(await getCampaignRepository(),run,id,epoch,await providers());}
-async function mobile(run:DiscoveryRun,id:string,epoch:string){'use step';return processMobile(await getCampaignRepository(),run,id,epoch,await providers());}
-async function finish(run:DiscoveryRun,epoch:string,error:string){'use step';await finishRun(await getCampaignRepository(),run,epoch,error);}
-async function dispatchNext(){'use step';const {dispatchDiscovery}=await import('../lib/discovery-dispatch');await dispatchDiscovery();}
+export async function claim(id:string,owner:string,epoch:string){
+  'use step';
+  return (await getCampaignRepository()).claimRun(id,owner,epoch);}
+export async function populate(run:DiscoveryRun,epoch:string){
+  'use step';
+  const repo=await getCampaignRepository();await populateRun(repo,run,epoch,await providers());return (await repo.listCandidates(run.id)).map(c=>c.id);}
+export async function html(run:DiscoveryRun,id:string,epoch:string){
+  'use step';
+  return processCandidate(await getCampaignRepository(),run,id,epoch,await providers());}
+export async function mobile(run:DiscoveryRun,id:string,epoch:string){
+  'use step';
+  return processMobile(await getCampaignRepository(),run,id,epoch,await providers());}
+export async function finish(run:DiscoveryRun,epoch:string,error:string){
+  'use step';
+  await finishRun(await getCampaignRepository(),run,epoch,error);}
+export async function dispatchNext(){
+  'use step';
+  const {dispatchDiscovery}=await import('../lib/discovery-dispatch');await dispatchDiscovery();}
 
 // Provider attempts are reserved in the database before requests; explicit loops bound retries.
 html.maxRetries = 0;

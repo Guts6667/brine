@@ -8,7 +8,8 @@
     "start": "NEXT_TELEMETRY_DISABLED=1 next start --hostname 127.0.0.1",
     "typecheck": "NEXT_TELEMETRY_DISABLED=1 next typegen && tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:workflow-build": "node scripts/verify-workflow-build.mjs"
   },
   "engines": {
     "node": "24.x"

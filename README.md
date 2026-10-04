@@ -137,6 +137,6 @@ La sauvegarde **v3** inclut campagnes, participations, rapports, décisions, lot
 
 ### Vérification
 
-`npm run test` couvre les contrats SQLite/libSQL, la migration et l’isolation entre campagnes, les réservations, les oppositions et les restaurations. `npm run build` vérifie également la compilation des workflows. `npm run test:e2e` utilise le build de production et une base isolée : exécuter le build auparavant. Le parcours de campagne lance le SDK réel avec des sources déterministes, quitte la page puis retrouve les résultats.
+`npm run test` couvre les contrats SQLite/libSQL, la migration et l’isolation entre campagnes, les réservations, les oppositions et les restaurations. `npm run build` vérifie également la compilation des workflows. Après ce build, `npm run test:workflow-build` charge le handler dans un processus neuf et vérifie l’enregistrement des six étapes ; elles sont exportées explicitement pour les invocations Vercel indépendantes. `npm run test:e2e` utilise le build de production et une base isolée : exécuter le build auparavant. Le parcours de campagne lance le SDK réel avec des sources déterministes, quitte la page puis retrouve les résultats.
 
 `BRINE_TEST_FIXTURES=1` est réservé au serveur navigateur local de test ; ce mode est désactivé sur Vercel. Il ne fournit aucun endpoint public de simulation. Les dépendances transitives `devalue` et `nanoid` du SDK sont remplacées par leurs versions correctives compatibles dans `package.json`.
