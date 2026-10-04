@@ -15,7 +15,13 @@ export function reportDate(value: string): string {
 }
 
 export function PrintReportButton() {
-  return <button className="button secondary print-hidden" type="button" onClick={() => window.print()}>Imprimer / enregistrer en PDF</button>;
+  const [pending,setPending]=useState(false),[error,setError]=useState('');
+  return <div className="print-hidden"><button className="button secondary" type="button" disabled={pending} onClick={async()=>{
+    setPending(true);setError('');let timer:ReturnType<typeof setTimeout>|undefined;
+    try{const images=Array.from(document.querySelectorAll<HTMLImageElement>('.print-report img'));images.forEach(image=>{image.loading='eager';});await Promise.race([Promise.all(images.map(image=>image.decode())),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Capture non chargée.')),10000);})]);window.print();}
+    catch{setError('Une capture n’a pas pu être chargée. Rechargez le dossier avant de l’exporter.');}
+    finally{clearTimeout(timer);setPending(false);}
+  }}>{pending?'Chargement des captures…':'Imprimer / enregistrer en PDF'}</button>{error&&<p role="alert" className="form-error">{error}</p>}</div>;
 }
 
 export function FactVisualEvidence({ fact, expanded = false }: { fact: ResearchFact; expanded?: boolean }) {
@@ -24,7 +30,7 @@ export function FactVisualEvidence({ fact, expanded = false }: { fact: ResearchF
   const imageUrl=visual.assetId?`/api/research-assets/${visual.assetId}`:visual.screenshot;
   return <div className="visual-evidence">
     <p className="small muted">{visual.device === 'mobile' ? 'Sur téléphone' : 'Sur ordinateur'} · {visual.element}{visual.viewport ? ` · ${visual.viewport.width} × ${visual.viewport.height} px` : ''}</p>
-    {imageUrl && <details className="visual-capture" open={expanded}><summary>Voir la capture</summary><Image className="visual-evidence-image" src={imageUrl} alt={`Constat visuel : ${visual.element}, sur ${visual.device === 'mobile' ? 'téléphone' : 'ordinateur'}, observé le ${reportDate(fact.observedOn)}`} width={visual.viewport?.width || 1280} height={visual.viewport?.height || 900} unoptimized /><a className="open-link print-hidden" href={imageUrl} download={'preuve-' + fact.id.replace(/[^a-zA-Z0-9_-]/g, '-') + '.jpg'}>Télécharger la capture pour l’examiner en détail</a></details>}
+    {imageUrl && <details className="visual-capture" open={expanded}><summary>Voir la capture</summary><Image className="visual-evidence-image" src={imageUrl} alt={`Constat visuel : ${visual.element}, sur ${visual.device === 'mobile' ? 'téléphone' : 'ordinateur'}, observé le ${reportDate(fact.observedOn)}`} width={visual.viewport?.width || 1280} height={visual.viewport?.height || 900} loading={expanded?'eager':'lazy'} unoptimized /><a className="open-link print-hidden" href={imageUrl} download={'preuve-' + fact.id.replace(/[^a-zA-Z0-9_-]/g, '-') + '.jpg'}>Télécharger la capture pour l’examiner en détail</a></details>}
   </div>;
 }
 
