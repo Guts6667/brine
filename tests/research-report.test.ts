@@ -56,6 +56,24 @@ test('identical observations merge provenance without removing legacy selection 
   assert.ok(fact.sourceIds.includes('search'));
   assert.equal(fact.observedOn, '2026-10-05');
 });
+
+test('visual observations keep their screen and proof when the same wording also exists in HTML', () => {
+  const input = candidate(), original = getCandidateFacts(input).find(fact => fact.id === 'technical-2')!;
+  input.research!.facts.push({ ...original, id: 'visual-desktop', sourceIds: ['search'], scope: 'Observation visuelle humaine.',
+    visual: { category: 'interaction', device: 'desktop', pageUrl: input.website, element: 'Accès devis', viewport: { width: 1280, height: 720 } } },
+    { ...original, id: 'visual-mobile', sourceIds: ['search'], scope: 'Observation visuelle humaine.',
+      visual: { category: 'interaction', device: 'mobile', pageUrl: input.website, element: 'Accès devis', viewport: { width: 390, height: 844 } } });
+  const report = buildProspectReport(input, campaign);
+  assert.equal(report.facts.filter(fact => fact.text === original.text).length, 3);
+  assert.deepEqual(report.facts.filter(fact => fact.visual).map(fact => fact.visual!.device), ['desktop', 'mobile']);
+  assert.match(report.coverage.join(' '), /Contrôle visuel humain : 2 observation/);
+  assert.doesNotMatch(report.coverage.join(' '), /Aucun audit visuel du design/);
+  const history = structuredClone(report); history.id = 'history';
+  history.facts.find(fact => fact.id === 'visual-mobile')!.visual!.viewport = { width: 390, height: 900 };
+  const merged = mergeCandidateReports([report, history], campaign)!;
+  assert.equal(merged.facts.filter(fact => fact.visual).length, 3);
+  assert.ok(merged.facts.some(fact => fact.visual?.viewport?.height === 900));
+});
 test('social-only identity is reportable without any fictitious site audit or absence conclusion', () => {
   const input = candidate(); input.website = ''; input.html = null; input.company.siren = ''; input.company.siret = '';
   input.research = { sources: [{ id: 'social', provider: 'google', url: 'https://www.instagram.com/atelier/', title: 'Profil', excerpt: 'Menuiserie', collectedAt: '2026-10-04' }], facts: [], contacts: [], profiles: ['https://www.instagram.com/atelier/'], warnings: [] };

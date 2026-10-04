@@ -292,7 +292,13 @@ export async function generateContactDraftsWithAI(repo: CampaignRepository, plan
 export async function generateContactPreparationWithAI(repo:CampaignRepository,plan:ApproachPlan,report:ProspectReport,profile:ProviderProfile,drafts:ContactDraft[],operationKey:string):Promise<{plan:ApproachPlan;drafts:ContactDraft[]}> {
   if (!process.env.OPENROUTER_API_KEY) return {plan,drafts};
   try {
-    const evidence = report.facts.filter(f => plan.evidenceIds.includes(f.id));
+    // Text drafting uses the documented observation. Private JPEG captures are
+    // for human verification and exports, never base64 text in an AI prompt.
+    const evidence = report.facts.filter(f => plan.evidenceIds.includes(f.id)).map(fact => {
+      if (!fact.visual) return fact;
+      const { screenshot: _screenshot, ...visual } = fact.visual;
+      return { ...fact, visual };
+    });
     const planSchema=z.object({evidenceIds:z.array(z.enum(plan.evidenceIds as [string,...string[]])).min(1).max(20),motive:z.enum(evidence.map(f=>f.text) as [string,...string[]]),rationale:z.string().max(5000),hypothesis:z.string().max(5000),help:z.string().max(5000),question:z.string().min(1).max(1500),nextStep:z.string().max(3000),offer:z.literal(plan.offer)}).strict();
     const outputSchema=z.object({plan:planSchema,email:z.object({subject:z.string().max(500),text:z.string().min(1).max(5000)}).strict(),call:z.object({text:z.string().min(1).max(5000)}).strict()}).strict();
     if(!plan.evidenceIds.length||!evidence.length)return {plan,drafts};

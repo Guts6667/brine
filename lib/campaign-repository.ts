@@ -7,8 +7,9 @@ import type { Company, CompanyDetails, CompanyInput, Contact, Activity } from '.
 import type { Campaign, Participation, CampaignCompany, DiscoveryRun, DiscoveryCandidate, CampaignBackupData } from './campaign-types';
 import type { ApproachPlan, ContactDraft, ContactEvent, ContactReadiness, ProspectReport, ProviderProfile, ResearchCorrection } from './research-types';
 import { buildProspectReport, enrichCompanyReport, mergeCandidateReports, listCandidateContacts } from './research-report';
-import { approachPlanSchema, contactDraftSchema, contactEventSchema, contactReadinessSchema, providerProfileSchema } from './research-schemas';
+import { approachPlanSchema, contactDraftSchema, contactEventSchema, contactReadinessSchema, providerProfileSchema, researchDataSchema } from './research-schemas';
 import { validProfessionalChannel } from './contact-preparation';
+import { parseVisualObservation, visualObservationFingerprint, visualObservationScope, type VisualObservationInput } from './visual-evidence';
 
 const timestamp = () => new Date().toISOString();
 const json = <T>(value: unknown): T => JSON.parse(String(value));
@@ -247,6 +248,26 @@ export class CampaignRepository {
   async getRun(id:string):Promise<DiscoveryRun> {const rows=await this.client.execute({sql:'SELECT payload FROM discovery_runs WHERE id = ?',args:[id]});if(!rows.rows.length)throw new Error('Lot introuvable.');return json(rows.rows[0].payload);}
   async listCandidates(runId:string):Promise<DiscoveryCandidate[]> {return (await this.client.execute({sql:'SELECT payload FROM discovery_candidates WHERE runId = ? ORDER BY rowid',args:[runId]})).rows.map(r=>json(r.payload));}
   async getCandidate(id:string):Promise<DiscoveryCandidate> {const r=await this.client.execute({sql:'SELECT payload FROM discovery_candidates WHERE id = ?',args:[id]});if(!r.rows.length)throw new Error('Résultat introuvable.');return json(r.rows[0].payload);}
+  private async candidateReportTx(tx:Transaction,candidate:DiscoveryCandidate,campaign:Campaign):Promise<ProspectReport>{
+    const report=buildProspectReport(candidate,campaign);
+    if(!candidate.companyId)return report;
+    const shared=await this.shared(tx,candidate.companyId);
+    const membership=(await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE campaignId=? AND companyId=?',args:[campaign.id,candidate.companyId]})).rows[0];
+    // Identity can be confirmed before a result is retained in this campaign.
+    const company=membership?this.project(shared,json<Participation>(membership.payload),campaign):shared;
+    const tests=(await tx.execute({sql:'SELECT * FROM ai_tests WHERE companyId=?',args:[candidate.companyId]})).rows as unknown as import('./types').AiTest[];
+    const corrections=(await tx.execute({sql:'SELECT payload FROM research_fact_corrections WHERE companyId=? ORDER BY rowid',args:[candidate.companyId]})).rows.map(row=>json<ResearchCorrection>(row.payload));
+    const activities=(await tx.execute({sql:'SELECT * FROM activities WHERE companyId=? ORDER BY createdAt DESC,rowid DESC',args:[candidate.companyId]})).rows as unknown as Activity[];
+    // Keep this collection's fact IDs: other lots are not merged into its chooser.
+    return enrichCompanyReport(report,company,campaign,tests,corrections,activities);
+  }
+  getCandidateReport(id:string):Promise<ProspectReport>{return this.readTransaction(async tx=>{
+    const candidate=await this.getCandidateTx(tx,id);
+    const row=(await tx.execute({sql:'SELECT payload FROM discovery_runs WHERE id=?',args:[candidate.runId]})).rows[0];
+    if(!row)throw new Error('Lot introuvable.');
+    const run=json<DiscoveryRun>(row.payload);
+    return this.candidateReportTx(tx,candidate,await this.campaign(tx,run.campaignId));
+  });}
   async putCandidate(tx:Transaction,c:DiscoveryCandidate) {
     const dedupeKey=candidateDedupeKey(c);
     const normalized={...c,dedupeKey,company:{...c.company,siren:/^\d{9}$/.test(c.company.siren)?c.company.siren:'',siret:/^\d{14}$/.test(c.company.siret)?c.company.siret:''}};
@@ -337,7 +358,9 @@ export class CampaignRepository {
         if(candidate.companyId)await this.log(tx,candidate.companyId,run.campaignId,decision==='reject'?'Décision de recherche corrigée : écartée. Le dossier et son historique sont conservés.':'Décision de recherche : à revoir.');
         return null;
       }
-      const report=buildProspectReport(candidate,run.target),facts=report.facts,contacts=listCandidateContacts(candidate);
+      const campaign=await this.campaign(tx,run.campaignId);
+      let report=buildProspectReport(candidate,campaign);
+      const facts=report.facts,contacts=listCandidateContacts(candidate);
       if(findingIds.some(id=>!facts.some(f=>f.id===id))||contactIndexes.some(i=>!Number.isInteger(i)||i<0||i>=contacts.length))throw new Error('Sélection invalide.');
       const alreadyAccepted=candidate.status==='accepted';
       let companyId=candidate.companyId;
@@ -357,6 +380,10 @@ export class CampaignRepository {
         const matches=existing.rows.filter(row=>(!row.siren||row.siren===candidate.company.siren)&&(candidate.website&&normalizedDomain(String(row.website))===normalizedDomain(candidate.website)||normalizeText(String(row.name))===normalizeText(candidate.company.name)&&normalizeText(String(row.city))===normalizeText(candidate.company.city)));
         if(matches.length)throw new Error('Une fiche pourrait correspondre. Confirmez l’identité avant de retenir ce résultat.');
       }
+      if(companyId){
+        report=await this.candidateReportTx(tx,{...candidate,companyId},campaign);
+        if(findingIds.some(id=>!report.facts.some(fact=>fact.id===id&&!fact.corrected)))throw new Error('Ce constat a été corrigé. Rechargez le dossier avant de modifier vos choix.');
+      }
       if(!companyId)companyId=await this.createTx(tx,run.campaignId,{name:candidate.company.name,city:candidate.company.city,business:candidate.company.business,website:candidate.website},{kind:'note',type:'Recherche d’entreprise',date:parisToday(),text:`Entreprise issue de la recherche.\n${candidate.company.siren?`SIREN : ${candidate.company.siren}\n`:''}${candidate.company.siret?`SIRET : ${candidate.company.siret}\n`:''}Source : ${candidate.company.sourceUrl}`});
       const shared=await this.shared(tx,companyId);
       if(shared.oppositionActive)throw new Error('Cette entreprise a une opposition active.');
@@ -370,9 +397,9 @@ export class CampaignRepository {
       await tx.execute({sql:'UPDATE companies SET updatedAt = ? WHERE id = ?',args:[new Date(Math.max(Date.now(),Date.parse(shared.updatedAt)+1)).toISOString(),companyId]});
       const p=await this.attachTx(tx,run.campaignId,companyId);
       const oldSelection=p.findingIds.filter(id=>id.startsWith(`${candidate.id}:`));
-      const selectedFindingIds=alreadyAccepted&&!selectionComplete&&!findingIds.length?oldSelection.map(id=>id.slice(candidate.id.length+1)):findingIds;
+      const selectedFindingIds=alreadyAccepted&&!selectionComplete&&!findingIds.length?oldSelection.map(id=>id.slice(candidate.id.length+1)).filter(id=>report.facts.some(fact=>fact.id===id&&!fact.corrected)):findingIds;
       p.findingIds=[...new Set([...p.findingIds.filter(id=>!id.startsWith(`${candidate.id}:`)),...selectedFindingIds.map(id=>`${candidate.id}:${id}`)])];
-      p.approach=approach.trim()||p.approach;p.revision++;p.updatedAt=timestamp();
+      p.approach=selectionComplete?approach.trim():approach.trim()||p.approach;p.revision++;p.updatedAt=timestamp();
       await this.writeParticipation(tx,p);
       for(const fact of facts.filter(f=>selectedFindingIds.includes(f.id)&&!oldSelection.includes(`${candidate.id}:${f.id}`))){
         const sources=report.sources.filter(source=>fact.sourceIds.includes(source.id));
@@ -403,6 +430,50 @@ export class CampaignRepository {
   }
   async linkCandidateCompany(id:string,companyId:string,revision:number){
     return this.transaction(async tx=>{const candidate=await this.getCandidateTx(tx,id);if(candidate.revision!==revision)throw new Error('Ce résultat a changé.');await this.shared(tx,companyId);candidate.companyId=companyId;candidate.revision++;await this.putCandidate(tx,candidate);return candidate;});
+  }
+  async addVisualObservation(id:string,revision:number,input:VisualObservationInput):Promise<DiscoveryCandidate>{
+    const observation=parseVisualObservation(input);
+    z.number().int().positive().parse(revision);
+    const fingerprint=visualObservationFingerprint(observation);
+    return this.transaction(async tx=>{
+      const candidate=await this.getCandidateTx(tx,id);
+      const existing=candidate.research?.facts.find(fact=>fact.visual&&!fact.corrected&&visualObservationFingerprint({...fact.visual,observation:fact.text,observedOn:fact.observedOn})===fingerprint);
+      // Exact retries return the current result even if the first save already changed its revision.
+      if(existing&&(!observation.screenshot||existing.visual?.screenshot===observation.screenshot))return candidate;
+      if(candidate.revision!==revision)throw new Error('Ce résultat a changé. Rechargez le lot avant d’ajouter votre observation.');
+      if(['queued','processing'].includes(candidate.status))throw new Error('L’analyse est encore en cours. Ajoutez votre observation une fois le résultat disponible.');
+      if(existing?.visual?.screenshot)throw new Error('Cette observation est déjà conservée avec une capture. Décrivez un nouveau constat pour conserver une autre preuve.');
+      const runRow=await tx.execute({sql:'SELECT payload FROM discovery_runs WHERE id=?',args:[candidate.runId]});
+      if(!runRow.rows.length)throw new Error('Lot introuvable.');
+      const run=json<DiscoveryRun>(runRow.rows[0].payload),campaign=await this.campaign(tx,run.campaignId);
+      const {observation:text,observedOn,...visual}=observation;
+      candidate.research ||= {sources:[],facts:[],contacts:[],profiles:[],warnings:[]};
+      if(existing){
+        existing.visual=visual;existing.scope=visualObservationScope(observation);
+      }else{
+        const sourceId=`visual-source-${randomUUID()}`;
+        candidate.research.sources.push({id:sourceId,provider:'manual',url:visual.pageUrl,title:`Observation visuelle humaine : ${visual.element}`,excerpt:text,collectedAt:observedOn});
+        candidate.research.facts.push({id:`visual-fact-${randomUUID()}`,section:'site',kind:'observed',sentiment:'issue',text,sourceIds:[sourceId],observedOn,scope:visualObservationScope(observation),visual});
+      }
+      // The prior narrative, contacts, profiles, facts and source history remain intact.
+      candidate.research.report=buildProspectReport(candidate,campaign);
+      candidate.research=researchDataSchema.parse(candidate.research);
+      candidate.revision++;await this.putCandidate(tx,candidate);
+      if(candidate.companyId){
+        const memberships=await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE companyId=?',args:[candidate.companyId]});
+        for(const row of memberships.rows){
+          const p=json<Participation>(row.payload);
+          if(!p.readiness&&!p.plan)continue;
+          if(p.readiness)p.readiness={...p.readiness,reason:false};
+          if(p.plan)p.plan={...p.plan,revalidateReason:'Une observation visuelle a complété le dossier. Revalidez le motif et les brouillons avec cette nouvelle preuve.'};
+          p.revision++;p.updatedAt=timestamp();await this.writeParticipation(tx,p);
+        }
+        const shared=await this.shared(tx,candidate.companyId);
+        await tx.execute({sql:'UPDATE companies SET updatedAt=? WHERE id=?',args:[new Date(Math.max(Date.now(),Date.parse(shared.updatedAt)+1)).toISOString(),candidate.companyId]});
+        await this.log(tx,candidate.companyId,run.campaignId,`${text}\nÉlément : ${visual.element}\nSource : ${visual.pageUrl}\nConsultation : ${observedOn}\n${visualObservationScope(observation)}`,'note','Observation visuelle');
+      }
+      return candidate;
+    });
   }
   private async companyReportTx(tx:Transaction,campaignId:string,companyId:string):Promise<ProspectReport|null>{
     await this.participation(tx,campaignId,companyId);

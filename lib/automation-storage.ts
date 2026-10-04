@@ -52,7 +52,7 @@ const contactSuggestionSchema = z.object({
 const findingSchema = z.object({
   id: boundedText(120).min(1).refine(value => !/[\u0000-\u001f]/.test(value), 'Identifiant de constat invalide.'),
   key: z.enum(['mobile', 'mainAction', 'contact', 'services', 'technical', 'siteAge']),
-  note: boundedText(2000).min(1), sourceUrl: httpUrl,
+  note: boundedText(12000).min(1), sourceUrl: httpUrl,
   approach: boundedText(2000).optional(),
 }).strict();
 const analysisSchema = z.object({

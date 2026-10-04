@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { visualEvidenceSchema } from './visual-evidence';
 
 const text = (max = 5000) => z.string().max(max).refine(value => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value), 'Le texte contient des caractères de contrôle.');
 const id = text(180).min(1);
@@ -27,8 +28,10 @@ export const researchFactSchema = z.object({
   id, section: factSectionSchema, kind: z.enum(['observed', 'reported', 'hypothesis']),
   sentiment: z.enum(['positive', 'neutral', 'issue']), text: text(12000).min(1), sourceIds: ids,
   observedOn: researchDateSchema, scope: text(3000), corrected: z.boolean().optional(),
-  refutesFactId: id.optional(),
-}).strict();
+  refutesFactId: id.optional(), visual: visualEvidenceSchema.optional(),
+}).strict().superRefine((fact, context) => {
+  if (fact.visual && (fact.section !== 'site' || fact.kind !== 'observed' || fact.sentiment !== 'issue' || !fact.observedOn)) context.addIssue({ code: 'custom', path: ['visual'], message: 'Une observation visuelle doit être un constat daté de l’analyse du site.' });
+});
 export const researchContactSchema = z.object({
   kind: z.enum(['email', 'phone', 'formUrl', 'profileUrl']), value: text(2048).min(1), sourceUrl: nonemptyUrl, sourceId: id.optional(),
 }).strict().superRefine((contact, context) => {

@@ -1,26 +1,104 @@
 'use client';
+
 import { useState } from 'react';
-import type { ProspectReport as Report } from '@/lib/research-types';
-const statusLabels={documented:'Documenté',partial:'Partiel',unverified:'Non vérifié',not_applicable:'Non applicable'};
-const kindLabels={observed:'Observation directe',reported:'Information rapportée',hypothesis:'Hypothèse'};
-export function PrintReportButton(){return <button className="button secondary print-hidden" type="button" onClick={()=>window.print()}>Imprimer / enregistrer en PDF</button>;}
-export function ProspectReport({report,selectionName,selectedIds=[],printHref,expanded=false}:{report:Report;selectionName?:string;selectedIds?:string[];printHref?:string;expanded?:boolean}) {
-  const [open,setOpen]=useState(expanded),[selected,setSelected]=useState(selectedIds);
-  const toggle=(id:string)=>setSelected(old=>old.includes(id)?old.filter(x=>x!==id):[...old,id]);
-  return <div className="prospect-report" data-testid="prospect-report"><div className="report-opening"><p className="eyebrow">DOSSIER · {report.facts.length} CONSTATS · {report.sources.length} SOURCES</p><p className="plain-text">{report.summary}</p><p className="small muted">Budget, besoin reconnu, priorité et décisionnaire restent inconnus sans information documentée.</p><div className="button-row print-hidden"><button type="button" className="button secondary" aria-expanded={open} onClick={()=>setOpen(!open)}>{open?'Replier le rapport':'Voir le rapport complet'}</button>{printHref&&<a className="button text-button" href={printHref} target="_blank" rel="noopener noreferrer">Export complet ↗</a>}</div></div>
-    {selectionName&&report.facts.filter(f=>selected.includes(f.id)).map(f=><input key={f.id} type="hidden" name={selectionName} value={f.id}/>)}
-    <div className={open?'report-full':'report-full report-folded'}>
-      <nav aria-label="Parties du dossier" className="report-nav print-hidden">{report.sections.map(s=><a key={s.key} href={'#report-'+report.id+'-'+s.key}>{s.title}</a>)}</nav>
-      {report.sections.map(section=><section key={section.key} id={'report-'+report.id+'-'+section.key} className="report-section"><div className="section-title"><h3>{section.title}</h3><span className="badge">{statusLabels[section.status]}</span></div>{section.notes.map((note,index)=><p className="small muted" key={index}>{note}</p>)}
-        {report.facts.filter(f=>section.factIds.includes(f.id)).map(f=><article className={'evidence-card fact-'+f.sentiment} key={f.id} data-fact-id={f.id}><div className="fact-heading"><span className="eyebrow">{kindLabels[f.kind]}</span><span className="small muted">{f.observedOn}</span></div><p className="plain-text">{f.text}</p><p className="small muted">{f.scope}</p>{f.corrected&&<p className="form-error">Constat corrigé : ne plus utiliser la formulation précédente.</p>}
-          {f.sourceIds.map(id=>{const source=report.sources.find(s=>s.id===id);return source?<a className="open-link small" key={id} href={source.url} target="_blank" rel="noopener noreferrer">{source.title} · {source.collectedAt} ↗</a>:<p key={id} className="small muted">Source inconnue : {id}</p>;})}
-          {selectionName&&f.kind!=='hypothesis'&&!f.corrected&&<button type="button" className={'button small-button print-hidden '+(selected.includes(f.id)?'primary':'secondary')} onClick={()=>toggle(f.id)} aria-pressed={selected.includes(f.id)}>{selected.includes(f.id)?'Preuve sélectionnée':'Utiliser pour mon approche'}</button>}
-        </article>)}
-        {section.key==='presence'&&report.profiles.map(url=><p key={url}><a href={url} target="_blank" rel="noopener noreferrer">{url} ↗</a></p>)}
-        {section.key==='contact'&&report.contacts.map((contact,i)=><p key={i}>{contact.kind==='formUrl'?'Formulaire repéré, non testé':contact.kind==='profileUrl'?'Profil public':contact.kind==='email'?'Email public':'Téléphone public'} : {contact.value} · <a href={contact.sourceUrl} target="_blank" rel="noopener noreferrer">Provenance ↗</a></p>)}
-        {section.key==='visibility'&&report.panel&&<div className="panel-responses"><h4>Panel API — réponses conservées</h4><p className="field-help">Ces réponses API ne représentent pas les interfaces ChatGPT ou Claude. Une absence ne porte que sur cette question et cette réponse.</p>{report.panel.responses.map((r,i)=><details key={i}><summary>{r.question} · {r.valid?'Réponse valide':'Erreur'}</summary><p className="small muted">{r.model} · {r.engine} · {r.recordedAt}</p><p className="plain-text">{r.answer||r.error}</p>{r.sources.map(s=><p key={s.id}><a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a></p>)}</details>)}</div>}
-        {section.key==='method'&&<><h4>Couverture de la collecte</h4><ul>{report.coverage.map((item,i)=><li key={i}>{item}</li>)}</ul>{report.warnings.map((warning,i)=><p className="field-help" key={i}>{warning}</p>)}{report.narrative&&<><h4>Lecture assistée du dossier</h4><p className="plain-text">{report.narrative}</p></>}<h4>Toutes les sources et leurs extraits</h4><ol className="report-sources">{report.sources.map(s=><li key={s.id}><a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a><p className="small muted">{s.provider} · {s.collectedAt}{s.query?' · Requête : '+s.query:''}</p><p className="plain-text small">{s.excerpt||'Aucun extrait conservé.'}</p></li>)}</ol></>}
-      </section>)}
+import { ChevronDown, ExternalLink } from 'lucide-react';
+import Image from 'next/image';
+import type { ProspectReport as Report, ResearchFact } from '@/lib/research-types';
+
+const statusLabels = { documented: 'Documenté', partial: 'Partiel', unverified: 'Non vérifié', not_applicable: 'Non applicable' };
+const kindLabels = { observed: 'Observation directe', reported: 'Information publiée', hypothesis: 'Hypothèse à confirmer' };
+
+export function reportDate(value: string): string {
+  if (!value) return 'Date inconnue';
+  const date = new Date(value.length === 10 ? value + 'T12:00:00Z' : value);
+  return Number.isNaN(date.getTime()) ? 'Date inconnue' : new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeZone: 'Europe/Paris' }).format(date);
+}
+
+export function PrintReportButton() {
+  return <button className="button secondary print-hidden" type="button" onClick={() => window.print()}>Imprimer / enregistrer en PDF</button>;
+}
+
+export function FactVisualEvidence({ fact, expanded = false }: { fact: ResearchFact; expanded?: boolean }) {
+  if (!fact.visual) return null;
+  const visual = fact.visual;
+  return <div className="visual-evidence">
+    <p className="small muted">{visual.device === 'mobile' ? 'Sur téléphone' : 'Sur ordinateur'} · {visual.element}{visual.viewport ? ` · ${visual.viewport.width} × ${visual.viewport.height} px` : ''}</p>
+    {visual.screenshot && <details className="visual-capture" open={expanded}><summary>Voir la capture du défaut</summary><Image className="visual-evidence-image" src={visual.screenshot} alt={`Constat visuel : ${visual.element}, sur ${visual.device === 'mobile' ? 'téléphone' : 'ordinateur'}, observé le ${reportDate(fact.observedOn)}`} width={visual.viewport?.width || 1280} height={visual.viewport?.height || 900} unoptimized /><a className="open-link print-hidden" href={visual.screenshot} download={'preuve-' + fact.id.replace(/[^a-zA-Z0-9_-]/g, '-') + '.jpg'}>Télécharger la capture pour l’examiner en détail</a></details>}
+  </div>;
+}
+
+type Props = {
+  report: Report;
+  selectionName?: string;
+  selectedIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
+  selectableIds?: string[];
+  selectionDisabled?: boolean;
+  renderSelectionInputs?: boolean;
+  printHref?: string;
+  expanded?: boolean;
+  showSummary?: boolean;
+};
+
+export function ProspectReport({ report, selectionName, selectedIds = [], onSelectionChange, selectableIds, selectionDisabled = false, renderSelectionInputs = true, printHref, expanded = false, showSummary = true }: Props) {
+  const [open, setOpen] = useState(expanded);
+  const [localSelection, setLocalSelection] = useState(selectedIds);
+  const selected = onSelectionChange ? selectedIds : localSelection;
+  const eligible = new Set(selectableIds || report.opportunities.flatMap(plan => plan.evidenceIds));
+  const toggle = (id: string) => {
+    const next = selected.includes(id) ? selected.filter(value => value !== id) : [...selected, id];
+    if (onSelectionChange) onSelectionChange(next);
+    else setLocalSelection(next);
+  };
+
+  return <div className="prospect-report" data-testid="prospect-report">
+    <div className="report-opening">
+      {showSummary && <p className="plain-text">{report.summary}</p>}
+      <div className="report-controls print-hidden">
+        <button type="button" className="button secondary" aria-expanded={open} aria-controls={'full-' + report.id} onClick={() => setOpen(!open)}>
+          {open ? 'Replier le rapport' : 'Voir le rapport complet'} <ChevronDown size={16} className={open ? 'report-chevron-open' : ''} aria-hidden="true" />
+        </button>
+        <span className="report-count">{report.facts.length} constats · {report.sources.length} sources</span>
+        {printHref && <a className="open-link" href={printHref} target="_blank" rel="noopener noreferrer">Export complet <ExternalLink size={14} aria-hidden="true" /></a>}
+      </div>
+    </div>
+
+    {selectionName && renderSelectionInputs && report.facts.filter(fact => selected.includes(fact.id)).map(fact => <input key={fact.id} type="hidden" name={selectionName} value={fact.id} />)}
+    <div id={'full-' + report.id} className={open ? 'report-full' : 'report-full report-folded'}>
+      {!expanded && <p className="report-detail-intro print-hidden">Ouvrez uniquement la partie qui vous intéresse. Le dossier et ses sources sont conservés en intégralité.</p>}
+      {report.sections.map(section => <details key={section.key} id={'report-' + report.id + '-' + section.key} className="report-section" open={expanded}>
+        <summary className="report-section-summary">
+          <h3>{section.title}</h3>
+          <span className="badge">{statusLabels[section.status]}</span>
+          <ChevronDown size={17} className="report-section-chevron print-hidden" aria-hidden="true" />
+        </summary>
+        <div className="report-section-body">
+          {section.notes.map((note, index) => <p className="small muted" key={index}>{note}</p>)}
+          {report.facts.filter(fact => section.factIds.includes(fact.id)).map(fact => <article className={'evidence-card fact-' + fact.sentiment} key={fact.id} data-fact-id={fact.id}>
+            <div className="fact-heading"><span className="eyebrow">{kindLabels[fact.kind]}</span><span className="small muted">{reportDate(fact.observedOn)}</span></div>
+            <p className="plain-text">{fact.text}</p>
+            <p className="small muted">{fact.scope}</p>
+            <FactVisualEvidence fact={fact} expanded={expanded} />
+            {fact.corrected && <p className="form-error">Constat corrigé : ne plus utiliser la formulation précédente.</p>}
+            <div className="fact-sources">{fact.sourceIds.map(id => {
+              const source = report.sources.find(item => item.id === id);
+              return source ? <a className="open-link small" key={id} href={source.url} target="_blank" rel="noopener noreferrer">{source.title} · {reportDate(source.collectedAt)} <ExternalLink size={13} aria-hidden="true" /></a> : <p key={id} className="small muted">La source de ce constat n’est pas disponible.</p>;
+            })}</div>
+            {selectionName && !fact.corrected && fact.kind !== 'hypothesis' && (eligible.has(fact.id) || selected.includes(fact.id)) && <button type="button" disabled={selectionDisabled} className={'button small-button print-hidden ' + (selected.includes(fact.id) ? 'primary' : 'secondary')} onClick={() => toggle(fact.id)} aria-pressed={selected.includes(fact.id)}>{selected.includes(fact.id) ? 'Preuve sélectionnée' : 'Utiliser pour mon approche'}</button>}
+          </article>)}
+
+          {section.key === 'presence' && report.profiles.map(url => <p key={url}><a href={url} target="_blank" rel="noopener noreferrer">{url} ↗</a></p>)}
+          {section.key === 'contact' && report.contacts.map((contact, index) => <p key={index}>{contact.kind === 'formUrl' ? 'Formulaire repéré, non testé' : contact.kind === 'profileUrl' ? 'Profil public' : contact.kind === 'email' ? 'Email public' : 'Téléphone public'} : {contact.value} · <a href={contact.sourceUrl} target="_blank" rel="noopener noreferrer">Provenance ↗</a></p>)}
+          {section.key === 'visibility' && report.panel && <div className="panel-responses"><h4>Réponses des outils de recherche</h4><p className="field-help">Les réponses de ces outils portent uniquement sur les questions enregistrées.</p>{report.panel.responses.map((response, index) => <details key={index} open={expanded}><summary>{response.question} · {response.valid ? 'Réponse conservée' : 'Indisponible'}</summary><p className="small muted">{response.model} · {response.engine} · {reportDate(response.recordedAt)}</p><p className="plain-text">{response.answer || response.error}</p>{response.sources.map(source => <p key={source.id}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a></p>)}</details>)}</div>}
+          {section.key === 'method' && <>
+            <h4>Ce qui a été consulté et vérifié</h4><ul>{report.coverage.map((item, index) => <li key={index}>{item}</li>)}</ul>
+            {report.warnings.map((warning, index) => <p className="field-help" key={index}>{warning}</p>)}
+            {report.narrative && <><h4>Lecture assistée du dossier</h4><p className="plain-text">{report.narrative}</p></>}
+            <h4>Toutes les sources et leurs extraits</h4>
+            <ol className="report-sources">{report.sources.map(source => <li key={source.id}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a><p className="small muted">{reportDate(source.collectedAt)}{source.query ? ' · Recherche : ' + source.query : ''}</p><p className="plain-text small">{source.excerpt || 'Aucun extrait conservé.'}</p></li>)}</ol>
+          </>}
+        </div>
+      </details>)}
     </div>
   </div>;
 }

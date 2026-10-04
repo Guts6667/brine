@@ -46,7 +46,7 @@ function sourceForContent(block: { url: string; title: string; excerpt: string; 
 export function getCandidateFacts(candidate: DiscoveryCandidate): ResearchFact[] {
   const result: ResearchFact[] = [], bySignature = new Map<string, ResearchFact>(), seenIds = new Set<string>();
   const add = (fact: ResearchFact) => {
-    const signature = JSON.stringify([fact.section, fact.kind, normalize(fact.text), fact.corrected || false]);
+    const signature = JSON.stringify([fact.section, fact.kind, normalize(fact.text), fact.corrected || false, fact.visual || null]);
     const duplicate = bySignature.get(signature);
     if (duplicate) {
       duplicate.sourceIds = unique([...duplicate.sourceIds, ...fact.sourceIds]);
@@ -63,7 +63,7 @@ export function getCandidateFacts(candidate: DiscoveryCandidate): ResearchFact[]
     for (const finding of analysis.findings) {
       const source = sourceForFinding(candidate, finding.sourceUrl, provider, analysis.analyzedOn, finding.note);
       const section: FactSection = finding.key === 'contact' || finding.key === 'mainAction' ? 'contact' : finding.key === 'services' ? 'presentation' : 'site';
-      add({ id: finding.id, section, kind: 'observed', sentiment: findingSentiment(finding.note, finding.approach), text: finding.note,
+      add({ id: finding.id, section, kind: 'observed', sentiment: finding.id === 'pagespeed-rendered-checks-passed' ? 'positive' : findingSentiment(finding.note, finding.approach), text: finding.note,
         sourceIds: [source.id], observedOn: analysis.analyzedOn,
         scope: provider === 'pagespeed' ? 'Test de laboratoire ponctuel avec simulation mobile ; le résultat peut varier.' : 'HTML public reçu sur cette page ; JavaScript non exécuté et actions non réalisées.' });
     }
@@ -189,7 +189,9 @@ export function buildProspectReport(candidate: DiscoveryCandidate, campaign: Cam
   if (sources.some(source => !source.collectedAt)) warnings.push('Certaines sources héritées n’ont pas de date de collecte enregistrée ; leur date reste inconnue.');
   const coverage = [
     'HTML public : accueil et jusqu’à deux pages internes de contact/prestations ; JavaScript non exécuté.',
-    'Aucun audit visuel du design, aucun envoi de formulaire et aucun test de réservation ou de paiement.',
+    facts.some(fact => fact.visual)
+      ? `Contrôle visuel humain : ${facts.filter(fact => fact.visual).length} observation(s) datée(s), limitée(s) aux éléments et écrans indiqués ; aucun audit visuel exhaustif. Aucun envoi de formulaire ni test de réservation ou de paiement.`
+      : 'Aucun audit visuel du design, aucun envoi de formulaire et aucun test de réservation ou de paiement.',
     'PageSpeed : mesures ponctuelles de laboratoire sur la page testée ; elles peuvent varier.',
     'Les recherches décrivent uniquement les requêtes, moteurs et résultats enregistrés ; aucune absence globale n’est déduite.',
     `Pages HTML consultées : ${candidate.html?.pages.length || 0}. Pages PageSpeed testées : ${candidate.mobile?.pages.length || 0}.`,
@@ -374,7 +376,7 @@ export function mergeCandidateReports(reports: ProspectReport[], campaign: Campa
   const sources = new Map(result.sources.map(source => [source.id, source]));
   const facts = new Map(result.facts.map(fact => [fact.id, fact]));
   const signature = (fact: ResearchFact) => JSON.stringify([fact.section, fact.kind, normalize(fact.text), normalize(fact.scope), fact.observedOn,
-    fact.sourceIds.map(id => sources.get(id)).filter(Boolean).map(source => `${source!.url}|${source!.collectedAt}`).sort(), fact.corrected || false]);
+    fact.sourceIds.map(id => sources.get(id)).filter(Boolean).map(source => `${source!.url}|${source!.collectedAt}`).sort(), fact.corrected || false, fact.visual || null]);
   const signatures = new Set(result.facts.map(signature));
   const contacts = new Set(result.contacts.map(contactKey));
   for (const report of reports.slice(1)) {

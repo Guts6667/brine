@@ -10,6 +10,7 @@ import { contactDraftSchema, contactEventSchema, providerProfileSchema } from '@
 import { generateContactPreparationWithAI } from '@/lib/research-providers';
 import { recordCreditPurchase } from '@/lib/research-budget';
 import type { ActionState } from '@/lib/types';
+import { parseVisualObservation } from '@/lib/visual-evidence';
 const str=(data:FormData,name:string)=>String(data.get(name)||'').trim();
 async function authorize(){const h=await headers();if(!isAllowedRequest(h.get('host'),h.get('origin'),h.get('sec-fetch-site')))throw new Error('Requête non autorisée.');await requireAuthenticated();}
 function fail(e:unknown):ActionState{return {error:e instanceof Error?e.message:'Enregistrement impossible.'};}
@@ -45,3 +46,11 @@ export async function creditPurchaseAction(_:ActionState,data:FormData):Promise<
 export async function correctReportFactAction(_:ActionState,data:FormData):Promise<ActionState>{try{await authorize();const {repo,campaign,company}=await context(data);await repo.correctReportFact(campaign.id,company.id,str(data,'factId'),str(data,'note'),Number(str(data,'revision')),str(data,'mode')==='hypothesis'?'hypothesis':'fact');refresh();return {ok:true,message:'Correction conservée dans le dossier. Les préparations concernées sont à revalider.'};}catch(e){return fail(e);}}
 export async function saveProfessionalContactAction(_:ActionState,data:FormData):Promise<ActionState>{try{await authorize();const {repo,campaign,company}=await context(data);await repo.saveProfessionalContact(campaign.id,company.id,{email:str(data,'email'),phone:str(data,'phone'),sourceUrl:str(data,'sourceUrl')},Number(str(data,'revision')),str(data,'sharedUpdatedAt'));refresh();return {ok:true,message:'Contact et provenance enregistrés. Confirmez le canal dans la préparation.'};}catch(e){return fail(e);}}
 export async function linkCandidateCompanyAction(_:ActionState,data:FormData):Promise<ActionState>{try{await authorize();await(await getCampaignRepository()).linkCandidateCompany(str(data,'candidateId'),str(data,'companyId'),Number(str(data,'revision')));refresh();return {ok:true,message:'Identité confirmée. Vous pouvez reprendre votre décision.'};}catch(e){return fail(e);}}
+export async function saveVisualObservationAction(_:ActionState,data:FormData):Promise<ActionState>{try{
+  await authorize();
+  const width=str(data,'viewportWidth'),height=str(data,'viewportHeight');
+  if(Boolean(width)!==Boolean(height))throw new Error('Indiquez la largeur et la hauteur de l’écran, ou laissez les deux champs vides.');
+  const input=parseVisualObservation({pageUrl:str(data,'pageUrl'),element:str(data,'element'),category:str(data,'category'),device:str(data,'device'),observation:str(data,'observation'),observedOn:str(data,'observedOn'),...(width&&height?{viewport:{width:Number(width),height:Number(height)}}:{}),...(str(data,'screenshot')?{screenshot:str(data,'screenshot')}:{})});
+  await(await getCampaignRepository()).addVisualObservation(str(data,'candidateId'),Number(str(data,'revision')),input);
+  refresh();return {ok:true,message:'Observation visuelle conservée dans le dossier, sans nouvelle recherche. Les préparations existantes sont à revalider.'};
+}catch(e){return fail(e);}}

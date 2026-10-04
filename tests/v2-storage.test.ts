@@ -13,7 +13,7 @@ import { getCampaignRepository, resetCampaignRepository } from '../lib/campaign-
 import { cloudMigrations } from '../lib/cloud-schema';
 import { backupSchema, parisToday } from '../lib/domain';
 import { buildProspectReport } from '../lib/research-report';
-import { buildContactDrafts, createApproachPlan, emptyProviderProfile } from '../lib/contact-preparation';
+import { buildContactDrafts, createApproachPlan, emptyProviderProfile, getEligibleApproachEvidence } from '../lib/contact-preparation';
 import type { DiscoveryCandidate } from '../lib/campaign-types';
 import type { ContactEvent, ContactReadiness } from '../lib/research-types';
 
@@ -189,6 +189,14 @@ for(const kind of ['local','cloud'] as const) {
       const report=(await f.repo.getCompanyReport(context.campaign.id,context.id))!;
       assert.notEqual(report.id,prep.report.id);assert.equal(report.facts.find(f=>f.id==='fact-0-0')?.corrected,true);
       assert.equal(report.facts.some(f=>f.text.includes('Le lien fonctionne')),true);
+      const candidateReport=await f.repo.getCandidateReport(context.c.id);
+      assert.equal(candidateReport.facts.filter(f=>f.id.startsWith('fact-0-')).length,12);
+      assert.equal(candidateReport.facts.find(f=>f.id==='fact-0-0')?.corrected,true);
+      assert.ok(candidateReport.facts.some(f=>f.text.includes('Le lien fonctionne')));
+      assert.ok(!getEligibleApproachEvidence(candidateReport,context.campaign,prep.profile).some(f=>f.id==='fact-0-0'));
+      const currentCandidate=await f.repo.getCandidate(context.c.id);
+      await assert.rejects(f.repo.reviewCandidate(context.c.id,currentCandidate.revision,'accept',['fact-0-0'],[],'',true),/constat a été corrigé/);
+      assert.deepEqual(await f.repo.getCandidate(context.c.id),currentCandidate,'Rejecting a corrected choice must leave the collection unchanged.');
       const company=await f.repo.getCompany(context.campaign.id,context.id);
       assert.equal(company.readiness?.reason,false);assert.ok(company.plan?.revalidateReason);
       const otherReport=(await f.repo.getCompanyReport(other.id,context.id))!;
@@ -197,6 +205,33 @@ for(const kind of ['local','cloud'] as const) {
       assert.equal(backup.campaignData?.corrections?.length,1);
       await f.base.restoreBackup(backup,true);
       assert.equal((await f.repo.getCompanyReport(context.campaign.id,context.id))?.facts.find(f=>f.id==='fact-0-0')?.corrected,true);
+      assert.equal((await f.repo.getCandidateReport(context.c.id)).facts.find(f=>f.id==='fact-0-0')?.corrected,true);
+    }finally{f.close();}
+  });
+  test(`${kind}: candidate reports apply shared corrections before campaign retention without merging other lots`,async()=>{
+    const f=await fixture(kind);try{
+      const context=await accepted(f),other=await f.repo.saveCampaign({...target,name:'Nouvelle campagne'});
+      const company=await f.repo.getCompany(context.campaign.id,context.id);
+      await f.repo.correctReportFact(context.campaign.id,context.id,'fact-0-0','Le lien est accessible lors de la vérification humaine.',company.participationRevision);
+      const otherLot=await f.repo.createRun(context.campaign.id,10,randomUUID()),unrelated=candidate(otherLot.id,7);
+      unrelated.companyId=context.id;
+      const run=await f.repo.createRun(other.id,10,randomUUID()),entry=candidate(run.id);
+      entry.companyId=context.id;
+      await f.repo.transaction(async tx=>{await f.repo.putCandidate(tx,unrelated);await f.repo.putCandidate(tx,entry);});
+      await f.repo.saveCampaign({...other,targetOffer:'Amélioration de l’accessibilité web'},other.id,other.revision);
+      await assert.rejects(f.repo.getCompany(other.id,context.id),/ne participe pas/);
+      const report=await f.repo.getCandidateReport(entry.id);
+      assert.equal(report.facts.filter(f=>f.id.startsWith('fact-0-')).length,12);
+      assert.equal(report.facts.some(f=>f.id.startsWith('fact-7-')),false);
+      assert.equal(report.facts.find(f=>f.id==='fact-0-0')?.corrected,true);
+      assert.ok(report.contacts.some(contact=>contact.value==='contact0@atelier.test'));
+      assert.ok(report.sections.find(section=>section.key==='fit')?.notes.some(note=>note.includes('Amélioration de l’accessibilité web')));
+      await assert.rejects(f.repo.getCompany(other.id,context.id),/ne participe pas/,'Reading a report must not attach the company.');
+      await assert.rejects(f.repo.reviewCandidate(entry.id,1,'accept',['fact-0-0'],[],'',true),/constat a été corrigé/);
+      assert.equal((await f.repo.getCandidate(entry.id)).revision,1);
+      const manualFact=report.facts.find(fact=>!buildProspectReport(entry,other).facts.some(item=>item.id===fact.id))!;
+      assert.ok(manualFact);
+      await assert.rejects(f.repo.reviewCandidate(entry.id,1,'accept',[manualFact.id],[],'',true),/Sélection invalide/);
     }finally{f.close();}
   });
   test(`${kind}: old preparations and unverified identity merges are rejected`,async()=>{
@@ -289,6 +324,7 @@ for(const kind of ['local','cloud'] as const) {
       const blankSelection=await f.repo.getCandidate(candidate.id);
       await f.repo.correctDecision(candidate.id,blankSelection.revision,'accept',[],[],'',true);
       assert.deepEqual((await f.repo.getCompany(context.campaign.id,context.id)).findingIds,[]);
+      assert.equal((await f.repo.getCompany(context.campaign.id,context.id)).approach,'');
       assert.equal((await f.repo.listActivities(context.id)).filter(a=>a.type==='Constat retenu').length,2);
       const latest=await f.repo.getCandidate(candidate.id);
       await f.repo.correctDecision(candidate.id,latest.revision,'reject');
@@ -360,6 +396,13 @@ for(const kind of ['local','cloud'] as const) {
       assert.notEqual(report.id,prep.report.id);
       assert.equal(Boolean(report.facts.find(f=>f.id==='fact-0-0')?.corrected),false);
       assert.equal(report.facts.some(f=>f.text.includes('Hypothèse réfutée')),true);
+      const candidateReport=await f.repo.getCandidateReport(context.c.id);
+      assert.equal(candidateReport.facts.filter(fact=>fact.id.startsWith('fact-0-')).length,12);
+      assert.equal(Boolean(candidateReport.facts.find(fact=>fact.id==='fact-0-0')?.corrected),false);
+      assert.ok(candidateReport.facts.some(fact=>fact.refutesFactId==='fact-0-0'));
+      const candidatePlan=createApproachPlan(candidateReport,context.campaign,prep.profile,['fact-0-0']);
+      assert.match(candidatePlan.hypothesis,/réfutée/);
+      assert.doesNotMatch(candidatePlan.hypothesis,/peut compliquer une demande/);
       const company=await f.repo.getCompany(context.campaign.id,context.id);
       assert.equal(company.readiness?.reason,false);assert.match(company.plan?.revalidateReason||'',/hypothèse/);
       const backup=await f.base.exportBackup();assert.equal(backupSchema.safeParse(backup).success,true);

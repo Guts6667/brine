@@ -203,3 +203,32 @@ test('eligible evidence excludes incompatible, hypothetical, corrected and unsou
   const plan = createApproachPlan(dossier, campaign, profile, ['broken'], now);
   assert.ok(plan.alternatives?.every(alternative => alternative.evidenceIds.every(id => ids.includes(id))));
 });
+
+test('a captured visual obstruction supports a precise intervention without claiming lost customers', () => {
+  const dossier = report(), sourceId = dossier.sources[0].id;
+  dossier.facts.push({ id: 'sesam-visual', section: 'site', kind: 'observed', sentiment: 'issue',
+    text: 'Dans les cartes Avant / après, trois ovales sombres Comparer masquent une partie des photos de réalisations.',
+    sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'Contrôle visuel humain sur ordinateur 1280 × 720, limité aux cartes Avant / après.',
+    visual: { category: 'overlap', device: 'desktop', pageUrl: 'https://atelier.example/', element: 'Cartes Avant / après', viewport: { width: 1280, height: 720 } } });
+  const plan = createApproachPlan(dossier, campaign, profile, ['sesam-visual'], now);
+  assert.deepEqual(plan.evidenceIds, ['sesam-visual']);
+  assert.match(plan.help, /corriger l’affichage de cet élément/);
+  assert.match(plan.hypothesis, /s’il se reproduit.*ressenti.*inconnu/);
+  assert.match(plan.question, /comparent vos réalisations/);
+  const email = buildContactDrafts(plan, dossier, profile, { now })[0];
+  assert.doesNotMatch(email.text, /perte de clients|chiffre d’affaires|refonte|garant|audit gratuit/i);
+  assert.equal((email.text.match(/\?/g) || []).length, 1);
+  assert.ok(getEligibleApproachEvidence(dossier, campaign, profile).some(fact => fact.id === 'sesam-visual'));
+});
+
+test('Lighthouse element failures support verification while coordinates and scores never become motives', () => {
+  const dossier = report(), sourceId = dossier.sources[0].id;
+  dossier.facts.push({ id: 'pagespeed-color-contrast', section: 'site', kind: 'observed', sentiment: 'issue', text: 'Le contrôle de contraste signale le bouton « Devis », repère #devis.', sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'Rendu mobile Lighthouse.' },
+    { id: 'raw-email', section: 'contact', kind: 'reported', sentiment: 'positive', text: 'Email : pro@atelier.example', sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'HTML public.' },
+    { id: 'raw-website', section: 'presence', kind: 'reported', sentiment: 'neutral', text: 'Site identifié : https://atelier.example/', sourceIds: [sourceId], observedOn: '2026-10-04', scope: 'Site déclaré.' });
+  const plan = createApproachPlan(dossier, campaign, profile, ['pagespeed-color-contrast'], now);
+  assert.match(plan.help, /contrastes, libellés ou dimensions/);
+  assert.match(plan.hypothesis, /rendu mobile testé/);
+  const ids = getEligibleApproachEvidence(dossier, campaign, profile).map(fact => fact.id);
+  assert.ok(!ids.includes('raw-email') && !ids.includes('raw-website') && !ids.includes('positive'));
+});

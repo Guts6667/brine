@@ -13,6 +13,7 @@ import { getBudgetOverview, getProviderState, runBudgetedResearch, saveProviderS
 import { populateRun, processCandidate, processMobile, processReport, finishRun, type DiscoveryProviders } from '../lib/discovery-engine';
 import { buildProspectReport } from '../lib/research-report';
 import { buildContactDrafts, createApproachPlan, emptyProviderProfile } from '../lib/contact-preparation';
+import { visualCaptureFixture } from './fixtures/visual-capture';
 
 const target:Campaign={id:'test',name:'Peintres',targetCity:'Montpellier',targetBusiness:'Peinture',targetOffer:'Site de présentation',activityCodes:'43.34Z',keywords:'peintre',status:'active',revision:1,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
 function fixture(){const dir=mkdtempSync(join(tmpdir(),'brine-research-provider-')),path=join(dir,'test.sqlite'),store=new Store(path),repo=new CampaignRepository(createClient({url:`file:${path}`}));return {store,repo,close(){store.close();repo.close();rmSync(dir,{recursive:true,force:true});}};}
@@ -91,10 +92,13 @@ test('a paused lot cannot start a paid report synthesis',async()=>fakeKeys(async
 test('AI prepares a grounded plan and short opening while preserving the complete call guide',async()=>fakeKeys(async()=>{
   const f=fixture(),originalFetch=globalThis.fetch;try{
     const candidate:DiscoveryCandidate={id:'contact-candidate',runId:'contact-run',companyId:null,company:{name:'Atelier',city:'Montpellier',business:'Peinture',siren:'',siret:'',activityCode:'',address:'',sourceUrl:'https://atelier.example/'},status:'review',website:'https://atelier.example/',websites:[],html:{website:'https://atelier.example/',analyzedOn:'2026-10-04',pages:[{url:'https://atelier.example/',title:'Atelier'}],contacts:[],warnings:[],findings:[{id:'broken',key:'technical',note:'Le lien « Demander un devis » répond HTTP 404.',sourceUrl:'https://atelier.example/devis',approach:'Vérifier cet accès.'}]},mobile:null,htmlError:'',mobileError:'',attempts:{},revision:1};
-    const report=buildProspectReport(candidate,target),profile={...emptyProviderProfile(),name:'Rayan',activity:'développeur indépendant',services:'Sites web',revision:1},plan=createApproachPlan(report,target,profile,['broken']),drafts=buildContactDrafts(plan,report,profile);let completions=0;
+    const report=buildProspectReport(candidate,target),profile={...emptyProviderProfile(),name:'Rayan',activity:'développeur indépendant',services:'Sites web',revision:1};
+    report.facts.find(fact=>fact.id==='broken')!.visual={category:'interaction',device:'desktop',element:'Lien Demander un devis',pageUrl:candidate.website,screenshot:visualCaptureFixture};
+    const plan=createApproachPlan(report,target,profile,['broken']),drafts=buildContactDrafts(plan,report,profile);let completions=0;
     globalThis.fetch=(async(url:unknown,options?:RequestInit)=>{
       if(String(url).endsWith('/key'))return json(key);completions++;
       const request=JSON.parse(String(options?.body)),context=JSON.parse(request.messages[1].content.split('Données fiables : ')[1]),current=context.plan;
+      assert.ok(!String(options?.body).includes('data:image/jpeg;base64,'),'Private captures are never sent as text to the drafting provider.');
       const text=`Bonjour, je suis ${context.profile.name}, ${context.profile.activity}. ${current.motive} ${current.question}`;
       return json({usage:{cost:.001},choices:[{message:{content:JSON.stringify({plan:{evidenceIds:current.evidenceIds,motive:current.motive,rationale:current.rationale,hypothesis:current.hypothesis,help:current.help,question:current.question,nextStep:current.nextStep,offer:current.offer},email:{subject:'Votre parcours de contact',text},call:{text}})}}]});
     }) as typeof fetch;

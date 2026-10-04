@@ -1,5 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import type { Backup } from '../lib/types';
+import { openFactSection, openContactChoices } from './report-helpers';
 
 async function backup(request: APIRequestContext): Promise<Backup> {
   const response = await request.get('/api/backup');
@@ -72,12 +73,15 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     await expect(page.getByRole('heading', { name: 'Atelier Social Démo', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
     const dossier = page.getByTestId('prospect-report');
-    for (let index = 0; index < 12; index++) await expect(dossier.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible();
+    await openFactSection(page, 'social-fact-0');
+    for (let index = 0; index < 12; index++) { await openFactSection(page, `social-fact-${index}`); await expect(dossier.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible(); }
     await expect(dossier.getByRole('heading', { name: 'Analyse du site', exact: true })).toBeVisible();
+    await dossier.getByRole('heading', { name: 'Analyse du site', exact: true }).click();
     await expect(dossier.getByText('Aucun site identifié ; aucun audit de site réalisé.', { exact: true })).toBeVisible();
     await dossier.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
+    await openContactChoices(page);
     await page.getByRole('checkbox', { name: /04 00 00 01 23/ }).check();
-    await page.getByRole('button', { name: 'Garder dans la campagne', exact: true }).click();
+    await page.getByRole('button', { name: 'Garder pour préparer un contact', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Atelier Social Démo', exact: true })).not.toBeVisible();
     const accepted = await backup(request), company = accepted.companies.find(company => company.name === 'Atelier Social Démo')!;
     expect(company).toBeTruthy(); expect(company.contact.phone).toBe('04 00 00 01 23');
@@ -170,9 +174,10 @@ test('V2 — revue mobile 390 px, tous les constats et reprise sans débordement
     await page.goto(`/campagnes/lots/${runId}?candidat=${social.id}`);
     await expect(page.getByRole('heading', { name: 'Atelier Social Démo', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+    await openFactSection(page, 'social-fact-0');
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-    for (let index = 0; index < 12; index++) await expect(page.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible();
-    await page.evaluate(() => window.scrollTo(0, 1500));
+    for (let index = 0; index < 12; index++) { await openFactSection(page, `social-fact-${index}`); await expect(page.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible(); }
+    await page.locator('.review-decisions').scrollIntoViewIfNeeded();
     const commands = await page.locator('.review-decisions').boundingBox();
     expect(commands).toBeTruthy(); expect(commands!.y).toBeGreaterThanOrEqual(0);
     expect(commands!.y + commands!.height).toBeLessThanOrEqual(844);

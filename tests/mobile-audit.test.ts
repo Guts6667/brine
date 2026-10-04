@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import dns from 'node:dns/promises';
 import test, { type TestContext } from 'node:test';
 import { auditMobile } from '../lib/mobile-audit';
+import { campaignBackupSchema } from '../lib/campaign-backup';
 
 const website = 'https://atelier.example.com/';
 function fixture(overrides: Record<string, unknown> = {}) {
@@ -98,6 +99,86 @@ test('good simulated LCP is recorded without a deterioration claim or a suggeste
   assert.equal(result.findings.length, 1);
   assert.match(result.findings[0].note, /99\/100.*1600 ms/);
   assert.equal(result.findings[0].approach, undefined);
+});
+
+test('one existing PageSpeed call collects rendered accessibility failures with concrete elements and dates', async t => {
+  publicDns(t);
+  let fetches = 0;
+  t.mock.method(globalThis, 'fetch', async (url: URL) => {
+    fetches++;
+    const fields = new URL(url).searchParams.get('fields')!;
+    for (const id of ['color-contrast', 'target-size', 'button-name', 'link-name', 'image-alt', 'label']) assert.ok(fields.includes(`${id}(score,scoreDisplayMode,details(`));
+    assert.ok(fields.includes('nodeLabel,selector,explanation'));
+    assert.equal(/screenshot|snippet|network/i.test(fields), false);
+    return json(fixture({ audits: {
+      'color-contrast': { score: 0, scoreDisplayMode: 'binary', details: { type: 'table', items: [
+        { node: { nodeLabel: 'Voir le chantier', selector: '.project-card a', explanation: 'Contraste insuffisant : 2,1:1.', snippet: '<a>private markup</a>' } },
+      ] } },
+      'target-size': { score: 0, details: { type: 'table', items: [
+        { node: { nodeLabel: 'Comparer', selector: '.compare' } }, { node: { nodeLabel: 'Menu', selector: '.menu' } },
+      ] } },
+      'button-name': { score: 0 }, 'link-name': { score: 0 }, 'image-alt': { score: 0 }, label: { score: 0 },
+    }, fullPageScreenshot: { data: 'DO NOT PERSIST SCREENSHOT' } }));
+  });
+  const result = await auditMobile(website);
+  assert.equal(fetches, 1);
+  const contrast = result.findings.find(item => item.id === 'pagespeed-color-contrast')!;
+  assert.match(contrast.note, /textes.*contraste insuffisant/);
+  assert.match(contrast.note, /Voir le chantier.*\.project-card a.*2,1:1/);
+  assert.match(contrast.note, /2026-10-04T10:00:00.000Z.*color-contrast/);
+  assert.match(contrast.approach!, /^Si.*couleurs/);
+  assert.match(result.findings.find(item => item.id === 'pagespeed-target-size')!.note, /2 éléments signalés.*Comparer.*Menu/);
+  assert.match(result.findings.find(item => item.id === 'pagespeed-button-name')!.note, /lecteurs d’écran.*pas précisés/);
+  assert.match(result.findings.find(item => item.id === 'pagespeed-link-name')!.note, /lecteurs d’écran/);
+  assert.match(result.findings.find(item => item.id === 'pagespeed-image-alt')!.note, /contrôle de texte alternatif/);
+  assert.match(result.findings.find(item => item.id === 'pagespeed-label')!.note, /libellé accessible/);
+  assert.ok(result.warnings.some(item => /images masquées.*visuellement/.test(item)));
+  assert.ok(result.warnings.some(item => /Aucun formulaire/.test(item)));
+  assert.equal(JSON.stringify(result).includes('private markup'), false);
+  assert.equal(JSON.stringify(result).includes('DO NOT PERSIST SCREENSHOT'), false);
+  assert.equal(JSON.stringify(result).includes('décrédibil'), false);
+});
+
+test('passing or missing rendered controls cannot invent a defect, commercial consequence or successful visual audit', async t => {
+  publicDns(t);
+  t.mock.method(globalThis, 'fetch', async () => json(fixture({ categories: {}, audits: {
+    'color-contrast': { score: 1 }, 'target-size': { score: 1, scoreDisplayMode: 'binary' },
+    'button-name': { score: 0, scoreDisplayMode: 'error' }, 'link-name': { score: 0, scoreDisplayMode: 'manual' },
+    'image-alt': { score: null, scoreDisplayMode: 'notApplicable' }, label: { score: 0, scoreDisplayMode: 'informative' },
+  } })));
+  const result = await auditMobile(website);
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0].id, 'pagespeed-rendered-checks-passed');
+  assert.match(result.findings[0].note, /réussis.*Contraste des textes.*Taille et espacement/);
+  assert.match(result.findings[0].note, /ne vaut pas validation visuelle/);
+  assert.equal(result.findings[0].approach, undefined);
+  assert.ok(result.warnings.some(item => /sans résultat exploitable.*Noms accessibles des boutons/.test(item)));
+});
+
+test('rendered element collection is explicitly bounded and invalid optional references do not erase valid measurements', async t => {
+  publicDns(t);
+  t.mock.method(globalThis, 'fetch', async () => json(fixture({ audits: {
+    'largest-contentful-paint': { numericValue: 1300, numericUnit: 'millisecond' },
+    'color-contrast': { score: 0, details: { type: 'table', items: Array.from({ length: 25 }, (_, i) => ({ node: {
+      nodeLabel: `${i} ${'Texte '.repeat(90)}\u0000`, selector: `.element-${i} ${'très long '.repeat(70)}`, explanation: 'Explication '.repeat(80),
+    } })) } },
+    'target-size': { score: 0, details: { type: 'table', items: [{ node: { selector: 12 } }, null, { invalid: true }] } },
+    'button-name': { score: 0, details: 'invalid optional details' },
+  } })));
+  const result = await auditMobile(website);
+  assert.match(result.findings.find(item => item.id === 'pagespeed-metrics')!.note, /1300 ms/);
+  const contrast = result.findings.find(item => item.id === 'pagespeed-color-contrast')!;
+  assert.match(contrast.note, /25 éléments signalés/);
+  assert.ok(contrast.note.length < 12000);
+  assert.ok(contrast.note.length > 2000);
+  assert.deepEqual(campaignBackupSchema.shape.candidates.element.shape.mobile.parse(result), result, 'All collected element descriptions survive the backup validation.');
+  assert.match(contrast.note, /\.element-19/);
+  assert.doesNotMatch(contrast.note, /\.element-20/);
+  assert.equal(contrast.note.includes('\u0000'), false);
+  assert.ok(result.warnings.some(item => /color-contrast.*détails conservés pour 20.*5 éléments supplémentaires/.test(item)));
+  assert.ok(result.warnings.some(item => /target-size.*3 repères inutilisables/.test(item)));
+  assert.match(result.findings.find(item => item.id === 'pagespeed-target-size')!.note, /3 éléments signalés.*pas précisés/);
+  assert.match(result.findings.find(item => item.id === 'pagespeed-button-name')!.note, /pas précisés/);
 });
 
 test('private, local and reserved target URLs are rejected before Google receives them', async t => {

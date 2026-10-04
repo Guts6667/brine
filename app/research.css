@@ -1,3 +1,186 @@
-.workflow-steps{display:flex;gap:8px;margin:20px 0 28px;flex-wrap:wrap}.workflow-steps a{display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--line);border-radius:28px;min-height:44px;color:var(--ink);font-size:14px}.workflow-steps a span{display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;width:24px;height:24px;font-size:12px}.workflow-steps .selected{background:var(--ink);color:#fffdf5}.research-status{background:#f1f2d7;border-radius:18px;padding:18px 22px;margin:22px 0}.research-status p{margin:10px 0 0}.prospect-report,.contact-workspace{min-width:0;display:grid;gap:20px}.report-opening p{line-height:1.65}.report-full{display:grid;gap:24px}.report-folded{display:none}.report-section{scroll-margin-top:20px;border-top:1px solid var(--line);padding-top:20px;display:grid;gap:14px}.report-section .section-title{align-items:flex-start;flex-wrap:wrap;justify-content:space-between}.report-section h3{font-size:19px}.report-nav{display:flex;flex-wrap:wrap;gap:8px}.report-nav a{font-size:13px;min-height:44px;border:1px solid var(--line);border-radius:22px;padding:10px 14px;display:flex;align-items:center}.fact-heading{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.fact-positive{border-left:4px solid #71804e}.fact-issue{border-left:4px solid #a16836}.report-sources{padding-left:24px;display:grid;gap:16px}.report-sources a,.prospect-report a{overflow-wrap:anywhere}.approach-chain{display:grid;gap:18px}.approach-chain .field{padding:18px;border:1px solid var(--line);border-radius:16px}.draft-text{min-height:290px;font-size:15px;line-height:1.7}.contact-workspace .filter-tabs button{background:none;border:0;border-bottom:2px solid transparent;font:inherit;padding:12px 16px;min-height:44px;cursor:pointer}.contact-workspace .filter-tabs button.selected{border-color:var(--ink);font-weight:600}.call-guide{padding:22px;background:#f1f2d7;border-radius:18px;display:grid;gap:16px}.workspace-detail{border-top:1px solid var(--line);padding-top:18px;margin-top:18px}.workspace-detail summary{cursor:pointer;min-height:44px;display:flex;align-items:center}.workspace-detail .prospect-report{padding-top:18px}.followup-choice{border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:12px}.followup-choice legend{padding:0 6px}.print-report{max-width:1000px;margin:auto}.panel-responses details{padding:16px 0;border-bottom:1px solid var(--line)}.panel-responses summary{cursor:pointer;min-height:44px}.preparation-waiting{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 24px;border-top:1px solid var(--line)}.preparation-waiting strong{display:block}.preparation-waiting a{min-height:44px;display:flex;align-items:center}
-@media(max-width:760px){.workflow-steps{gap:6px}.workflow-steps a{font-size:12px;padding:8px 10px}.workflow-steps a span{width:20px;height:20px}.contact-workspace .filter-tabs{gap:4px}.contact-workspace .filter-tabs button{padding:10px;font-size:13px}.report-section .section-title h3{max-width:100%}.approach-chain .field{padding:14px}.preparation-waiting{padding:16px;align-items:flex-start}.review-decisions{position:fixed;bottom:max(8px,env(safe-area-inset-bottom));left:16px;right:16px;padding:12px;box-shadow:0 -4px 18px #25221b12;border:1px solid var(--line);border-radius:14px;flex-wrap:wrap;z-index:20}.review-has-selection .review-detail{padding-bottom:120px}.review-has-selection .report-section{scroll-margin-bottom:120px}.review-decisions button{flex:1;white-space:normal}.call-guide{padding:16px}.prospect-report input,.contact-workspace textarea,.contact-workspace select{max-width:100%}.report-nav a{padding:8px 10px}}
-@media print{html,body,.workspace,#main{display:block!important;width:100%!important;margin:0!important;padding:0!important;background:white!important;color:black!important}.sidebar,.topbar,.workspace-footer,.skip-link,.print-hidden{display:none!important}.report-full,.report-folded{display:block!important}.report-nav{display:none!important}.report-section{margin:20px 0;padding-top:12px;break-before:auto}.evidence-card{break-inside:avoid;margin:12px 0}.report-section details{display:block!important}.report-section details>*{display:block!important}.report-section a{color:black;text-decoration:underline;font-size:10pt}.report-section a::after{content:" (" attr(href) ")";overflow-wrap:anywhere}.print-report{font-size:10pt}.print-report h1{font-size:22pt}.print-report h3{font-size:14pt}.print-report .badge{border:1px solid #777;color:black}.print-report button{display:none!important}}
+.workflow-steps { display: flex; gap: 8px; margin: 20px 0 28px; flex-wrap: wrap; }
+.workflow-steps a { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 28px; min-height: 44px; color: var(--ink); font-size: 14px; }
+.workflow-steps a span { display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; width: 24px; height: 24px; font-size: 12px; }
+.workflow-steps .selected { background: var(--ink); color: #fffdf5; }
+.research-status { background: #f1f2d7; border-radius: 18px; padding: 18px 22px; margin: 22px 0; }
+.research-status p { margin: 10px 0 0; }
+.prospect-report, .contact-workspace { min-width: 0; display: grid; gap: 20px; }
+.report-opening p { line-height: 1.65; }
+.report-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.report-controls .button, .report-controls .open-link { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; }
+.report-count { font-size: 13px; color: #606153; }
+.report-chevron-open, .report-section[open] .report-section-chevron { transform: rotate(180deg); }
+.report-full { display: grid; gap: 0; }
+.report-folded { display: none; }
+.report-detail-intro { margin-bottom: 14px; font-size: 14px; line-height: 1.6; color: #606153; }
+.report-section { display: block; scroll-margin-top: 20px; border-top: 1px solid var(--line); padding: 0; }
+.report-section-summary { cursor: pointer; min-height: 58px; display: flex; align-items: center; gap: 12px; padding: 12px 0; list-style: none; }
+.report-section-summary::-webkit-details-marker { display: none; }
+.report-section-summary h3 { flex: 1; font-size: 16px; margin: 0; }
+.report-section-summary .badge { font-size: 11px; }
+.report-section-summary .report-section-chevron { flex: 0 0 auto; }
+.report-section-body { display: grid; gap: 14px; padding: 4px 0 22px; min-width: 0; }
+.report-section-body .plain-text { font-size: 14px; line-height: 1.65; }
+.report-section-body .small { font-size: 13px; line-height: 1.55; }
+.report-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.report-nav a { font-size: 13px; min-height: 44px; border: 1px solid var(--line); border-radius: 22px; padding: 10px 14px; display: flex; align-items: center; }
+.fact-heading { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.fact-positive { border-left: 4px solid #71804e; }
+.fact-issue { border-left: 4px solid #a16836; }
+.fact-sources { display: grid; gap: 7px; }
+.fact-sources .open-link { display: inline-flex; align-items: center; gap: 5px; }
+.report-sources { padding-left: 24px; display: grid; gap: 16px; }
+.report-sources a, .prospect-report a { overflow-wrap: anywhere; }
+.approach-chain { display: grid; gap: 18px; }
+.approach-chain .field { padding: 18px; border: 1px solid var(--line); border-radius: 16px; }
+.draft-text { min-height: 290px; font-size: 15px; line-height: 1.7; }
+.contact-workspace .filter-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; font: inherit; padding: 12px 16px; min-height: 44px; cursor: pointer; }
+.contact-workspace .filter-tabs button.selected { border-color: var(--ink); font-weight: 600; }
+.call-guide { padding: 22px; background: #f1f2d7; border-radius: 18px; display: grid; gap: 16px; }
+.workspace-detail { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }
+.workspace-detail summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.workspace-detail .prospect-report { padding-top: 18px; }
+.followup-choice { border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
+.followup-choice legend { padding: 0 6px; }
+.print-report { max-width: 1000px; margin: auto; }
+.panel-responses details { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.panel-responses summary { cursor: pointer; min-height: 44px; }
+.preparation-waiting { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 24px; border-top: 1px solid var(--line); }
+.preparation-waiting strong { display: block; }
+.preparation-waiting a { min-height: 44px; display: flex; align-items: center; }
+
+/* A short decision view sits before the complete research dossier. */
+.review-run-status { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 16px 20px; background: #f4f3ec; border: 1px solid var(--line); border-radius: 12px; }
+.review-run-status > p { flex: 1 1 360px; font-size: 14px; line-height: 1.6; }
+.review-run-status summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: 13px; }
+.review-run-status details[open] { flex: 1 1 100%; }
+.review-decision-confirmation { margin: 16px 0; padding: 16px 20px; border: 1px solid #bbc684; background: #f4f7e4; border-radius: 12px; font-size: 14px; line-height: 1.6; }
+.review-decision-confirmation a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+.prospect-review-layout { grid-template-columns: minmax(230px, .52fr) minmax(0, 1.48fr); }
+.prospect-review-layout .review-detail { gap: 20px; padding: 26px; }
+.prospect-review-layout .review-list-item { gap: 8px; }
+.review-list-insight { font-size: 13px; line-height: 1.5; color: #555841; }
+.review-company-heading { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.review-company-heading h2 { font-size: 25px; line-height: 1.2; margin-bottom: 7px; }
+.review-company-heading p { font-size: 14px; line-height: 1.5; color: #606153; }
+.review-company-heading .badge { flex-shrink: 0; }
+.prospect-review { display: grid; gap: 22px; min-width: 0; font-size: 14px; line-height: 1.6; }
+.prospect-review .button { font-size: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; }
+.prospect-review .field-help, .prospect-review .small { font-size: 13px; line-height: 1.55; }
+.prospect-review .field textarea, .prospect-review .field input, .prospect-review .field select { font-size: 14px; }
+.review-identity-links { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+.review-public-contact { display: flex; align-items: center; gap: 7px; max-width: 100%; min-width: 0; }
+.review-public-contact > svg { flex-shrink: 0; color: #606153; }
+.review-public-contact > span { overflow-wrap: anywhere; font-size: 14px; }
+.review-public-contact a { font-size: 12px; display: inline-flex; align-items: center; gap: 3px; min-height: 44px; flex-shrink: 0; color: #606153; }
+.review-unknown { color: #606153; font-size: 13px; }
+.review-status-note { padding: 14px 16px; background: #f6f4ee; border-radius: 10px; font-size: 14px; line-height: 1.6; }
+.review-saved-state { display: grid; gap: 14px; padding: 18px; background: #f3f6e5; border: 1px solid #c5cc9c; border-radius: 12px; }
+.review-saved-state strong { display: flex; align-items: center; gap: 8px; }
+.review-saved-state p { margin-top: 6px; }
+.review-offer-needed { display: grid; gap: 12px; padding: 18px; border: 1px solid #d9c9a4; background: #fff9ed; border-radius: 12px; }
+.review-offer-needed > strong { font-size: 16px; }
+.review-offer-needed > .button { justify-self: start; }
+.review-form, .review-priorities { display: grid; gap: 16px; min-width: 0; }
+.review-block-heading h3 { font-size: 18px; line-height: 1.35; margin-bottom: 6px; }
+.review-block-heading p { color: #606153; font-size: 14px; line-height: 1.6; }
+.review-insight { display: grid; gap: 13px; padding: 18px; border: 1px solid var(--line); border-left: 3px solid #9a774e; border-radius: 12px; min-width: 0; background: #fffdfa; }
+.review-insight-selected { border-color: #b2be78; border-left-color: #68783b; }
+.review-insight-heading { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
+.review-insight h4 { font-size: 16px; line-height: 1.4; margin: 0; }
+.review-selected-label { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 12px; color: #4c5a28; }
+.review-observation { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+.review-proof-line { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; font-size: 12px; line-height: 1.5; color: #606153; }
+.review-proof-line a { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; color: var(--ink); font-size: 13px; }
+.review-insight-meaning { font-size: 14px; line-height: 1.6; }
+.review-insight-meaning strong { display: block; font-size: 13px; margin-bottom: 3px; }
+.review-insight-footer { display: flex; gap: 10px 16px; align-items: flex-start; flex-wrap: wrap; }
+.review-insight-sources { flex: 1 1 190px; }
+.review-insight-sources summary { display: flex; align-items: center; cursor: pointer; min-height: 44px; font-size: 13px; color: #606153; text-decoration: underline; text-underline-offset: 3px; }
+.review-insight-sources[open] { flex-basis: 100%; }
+.review-insight-sources .details-body { display: grid; gap: 10px; padding-top: 6px; margin-top: 0; }
+.review-insight-sources a { display: inline; overflow-wrap: anywhere; }
+.review-more-insights, .review-positives, .review-unknowns, .review-secondary-detail, .review-site-control { border-top: 1px solid var(--line); }
+.review-more-insights > summary, .review-positives > summary, .review-unknowns > summary, .review-secondary-detail > summary, .review-site-control > summary { min-height: 48px; padding: 8px 0; font-size: 14px; cursor: pointer; line-height: 1.5; }
+.review-more-insights .details-body, .review-positives .details-body, .review-secondary-detail .details-body, .review-site-control .details-body { display: grid; gap: 14px; margin-top: 0; padding: 8px 0 4px; }
+.review-positives .review-insight { border-left-color: #71804e; }
+.review-no-finding { padding: 16px; border: 1px dashed #c5c5b9; border-radius: 10px; display: grid; gap: 8px; }
+.review-choice-area { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); background: #f7f6ef; border-radius: 12px; }
+.review-contact-choices > summary { cursor: pointer; padding: 8px 0; min-height: 44px; }
+.review-contact-choices > summary > span { display: block; padding: 4px 0 0 18px; color: #606153; font-size: 13px; overflow-wrap: anywhere; }
+.review-contact-choices .details-body { display: grid; gap: 10px; margin-top: 0; }
+.review-contact-choice { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; min-height: 44px; }
+.review-contact-choice input { width: 18px; height: 18px; flex-shrink: 0; margin-top: 5px; accent-color: #526125; }
+.review-contact-choice span { display: grid; gap: 3px; overflow-wrap: anywhere; min-width: 0; }
+.review-contact-choice strong { font-size: 12px; font-weight: 500; color: #606153; }
+.review-contact-choice a { font-size: 12px; display: inline-flex; gap: 4px; align-items: center; min-height: 32px; }
+.review-personal-note summary { cursor: pointer; min-height: 44px; padding: 8px 0; }
+.review-personal-note .field { padding-top: 8px; }
+.review-personal-note textarea { min-height: 100px; }
+.prospect-review .review-decisions { position: static; padding: 0; background: transparent; border: 0; box-shadow: none; z-index: auto; }
+.review-decision-help { font-size: 13px; color: #606153; line-height: 1.55; }
+.review-unknowns ul { display: grid; gap: 8px; padding: 0 0 6px 20px; margin-top: 10px; color: #606153; }
+.review-complete-dossier { border-top: 1px solid var(--line); padding-top: 18px; }
+.visual-evidence { display: grid; gap: 8px; }
+.visual-capture summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 8px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.visual-capture img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; background: #f1f0e9; }
+
+@media (max-width: 980px) and (min-width: 761px) {
+  .prospect-review-layout { grid-template-columns: 1fr; }
+  .prospect-review-layout .review-list { position: static; max-height: none; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .workflow-steps { gap: 6px; margin: 18px 0; }
+  .workflow-steps a { font-size: 12px; padding: 8px 10px; }
+  .workflow-steps a span { width: 20px; height: 20px; }
+  .contact-workspace .filter-tabs { gap: 4px; }
+  .contact-workspace .filter-tabs button { padding: 10px; font-size: 13px; }
+  .approach-chain .field { padding: 14px; }
+  .preparation-waiting { padding: 16px; align-items: flex-start; }
+  .review-run-status { padding: 14px 16px; gap: 8px; }
+  .prospect-review-layout { grid-template-columns: minmax(0, 1fr); }
+  .prospect-review-layout.review-has-selection .review-detail { padding: 20px 16px; }
+  .review-company-heading { flex-wrap: wrap; }
+  .review-company-heading h2 { font-size: 23px; }
+  .review-company-heading p { font-size: 14px; }
+  .review-identity-links { gap: 6px 14px; align-items: flex-start; }
+  .review-identity-links > .button { margin-bottom: 4px; }
+  .review-public-contact { flex-basis: 100%; }
+  .review-offer-needed, .review-saved-state, .review-insight, .review-choice-area { padding: 14px; }
+  .review-insight-heading { flex-wrap: wrap; gap: 5px; }
+  .review-insight h4 { font-size: 16px; }
+  .review-observation { font-size: 15px; }
+  .prospect-review .field textarea, .prospect-review .field input, .prospect-review .field select, .review-site-control .field input, .review-secondary-detail .field input, .review-secondary-detail .field select { font-size: 16px; }
+  .review-insight-meaning { font-size: 14px; }
+  .prospect-review .review-decisions { position: static; flex-wrap: wrap; gap: 8px; }
+  .prospect-review .review-decisions .primary { width: 100%; }
+  .prospect-review .review-decisions .secondary, .prospect-review .review-decisions .text-button { flex: 1; }
+  .review-saved-state .button-row > .primary { width: 100%; }
+  .review-complete-dossier .report-count { width: 100%; order: 3; }
+  .report-section-summary { gap: 8px; }
+  .report-section-summary h3 { font-size: 15px; }
+  .report-section-summary .badge { max-width: 95px; overflow-wrap: anywhere; white-space: normal; text-align: center; }
+  .report-section-body .evidence-card { padding: 14px; }
+  .call-guide { padding: 16px; }
+  .prospect-report input, .contact-workspace textarea, .contact-workspace select { max-width: 100%; }
+  .report-nav a { padding: 8px 10px; }
+}
+@media print {
+  html, body, .workspace, #main { display: block !important; width: 100% !important; margin: 0 !important; padding: 0 !important; background: white !important; color: black !important; }
+  .sidebar, .topbar, .workspace-footer, .skip-link, .print-hidden { display: none !important; }
+  .report-full, .report-folded { display: block !important; }
+  .report-nav { display: none !important; }
+  .report-section { margin: 20px 0; padding-top: 12px; break-before: auto; }
+  .report-section-body { display: block !important; }
+  .evidence-card { break-inside: avoid; margin: 12px 0; }
+  .report-section details, .report-section details > * { display: block !important; }
+  .report-section details::details-content { content-visibility: visible !important; display: block !important; }
+  .report-section a { color: black; text-decoration: underline; font-size: 10pt; }
+  .report-section a::after { content: " (" attr(href) ")"; overflow-wrap: anywhere; }
+  .print-report { font-size: 10pt; }
+  .print-report h1 { font-size: 22pt; }
+  .print-report h3 { font-size: 14pt; }
+  .print-report .badge { border: 1px solid #777; color: black; }
+  .print-report button { display: none !important; }
+  .print-report .visual-capture img { max-height: none; border-radius: 0; }
+}

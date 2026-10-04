@@ -43,6 +43,23 @@ function angleFor(fact: ResearchFact, offer: string): Pick<ApproachPlan, 'hypoth
   const webOffer = /site|web|developp|application|refonte|mobile|interface|numerique|digital|seo|devis|contact|vitrine|presentation|prestations|chargement|performance|accessib|conversion|visibilite/.test(services);
   if (!webOffer) return null;
   const nextStep = 'Selon votre réponse, préciser le fonctionnement et le résultat souhaité, puis convenir d’une prochaine étape seulement si elle vous est utile.';
+  if (fact.sentiment === 'issue' && fact.kind === 'observed' && fact.visual && fact.section === 'site') {
+    const portfolio = /realisation|chantier|photo|avant.?apres|compar/.test(normalize(fact.visual.element + ' ' + fact.text));
+    return {
+      hypothesis: portfolio
+        ? 'Ce rendu peut rendre les réalisations moins faciles à examiner et donner une impression de finition incomplète s’il se reproduit ; le ressenti des visiteurs reste inconnu.'
+        : 'Ce défaut peut gêner la lecture ou l’utilisation de cet élément s’il se reproduit ; son impact réel reste à confirmer.',
+      help: fact.visual.category === 'interaction'
+        ? 'Reproduire le comportement de cet élément et envisager une correction ciblée si le défaut se confirme.'
+        : 'Reproduire le défaut sur la page et la taille d’écran concernées, puis corriger l’affichage de cet élément.',
+      question: portfolio ? 'Comment souhaitez-vous que les visiteurs découvrent et comparent vos réalisations ?' : 'Quel parcours est le plus important pour les visiteurs de cette page ?', nextStep,
+    };
+  }
+  if (fact.sentiment === 'issue' && fact.kind === 'observed' && fact.id.startsWith('pagespeed-') && /contraste|cibles? tactiles?|nom accessible|texte alternatif|libelle/.test(text)) return {
+    hypothesis: 'Les éléments signalés peuvent gêner la lecture ou l’utilisation dans le rendu mobile testé ; leur effet pour les visiteurs reste à vérifier sur la page concernée.',
+    help: 'Vérifier les éléments signalés sur téléphone et corriger leurs contrastes, libellés ou dimensions selon le contrôle concerné.',
+    question: 'Que souhaitez-vous que les visiteurs puissent consulter ou faire facilement depuis leur téléphone ?', nextStep,
+  };
   if (fact.section === 'fit' && /besoin (?:declare|exprime)|demande explicite/.test(text) && !/besoin non reconnu|pas de besoin/.test(text)) return {
     hypothesis: 'Le besoin exprimé donne un point de départ ; son périmètre, ses contraintes et la solution adaptée restent à préciser.',
     help: 'Préciser avec vous ce besoin et définir une intervention adaptée à votre fonctionnement, dans le cadre de mon offre.',
@@ -88,11 +105,7 @@ function angleFor(fact: ResearchFact, offer: string): Pick<ApproachPlan, 'hypoth
     help: 'Examiner avec vous la façon de présenter ces prestations ou réalisations, si vous souhaitez la faire évoluer.',
     question: 'Qu’aimeriez-vous que les personnes qui découvrent votre activité comprennent en priorité ?', nextStep,
   };
-  if (['contact', 'presence'].includes(fact.section) && fact.sentiment !== 'issue') return {
-    hypothesis: 'Les informations publiées constituent un point de départ ; elles ne prouvent pas une difficulté de contact ou un besoin de refonte.',
-    help: 'Comprendre votre parcours de présentation et de contact avant d’envisager une amélioration.',
-    question: 'Comment recevez-vous et traitez-vous les demandes de nouveaux projets aujourd’hui ?', nextStep,
-  };
+  // Coordinates and detected links help to contact someone; they are not an approach motive.
   // A satisfactory viewport, score, or metric alone is not an invented reason to redesign.
   return null;
 }

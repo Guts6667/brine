@@ -1,0 +1,10 @@
+.visual-observation { border: 1px solid var(--line); border-radius: 16px; background: var(--surface, #fff); margin: 18px 0; }
+.visual-observation > summary { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 16px 18px; font-weight: 600; list-style: none; }
+.visual-observation > summary::-webkit-details-marker { display: none; }
+.visual-observation > summary svg:last-child { margin-left: auto; }
+.visual-observation[open] > summary svg:last-child { transform: rotate(180deg); }
+.visual-observation-body { padding: 0 18px 18px; }
+.visual-capture-preview { margin: 0; }
+.visual-capture-preview img, .visual-evidence-image { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; display: block; }
+.visual-capture-preview figcaption { font-size: 12px; line-height: 1.6; color: var(--muted); margin-top: 8px; }
+@media print { .visual-evidence-image { max-height: 14cm; object-fit: contain; break-inside: avoid; } }

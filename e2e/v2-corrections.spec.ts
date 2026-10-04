@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { openFactSection, openContactChoices } from './report-helpers';
 import type { Backup, Company } from '../lib/types';
 import type { DiscoveryCandidate } from '../lib/campaign-types';
 
@@ -53,9 +54,11 @@ async function keep(page: Page, request: APIRequestContext, runId: string, candi
   await page.goto(`/campagnes/lots/${runId}?candidat=${candidate.id}`);
   await expect(page.getByRole('heading', { name: candidate.company.name, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+  await openFactSection(page, evidenceId);
   await page.locator(`[data-fact-id="${evidenceId}"]`).getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
+  await openContactChoices(page);
   await page.getByRole('checkbox', { name: new RegExp(contact.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).check();
-  await page.getByRole('button', { name: 'Garder dans la campagne', exact: true }).click();
+  await page.getByRole('button', { name: 'Garder pour préparer un contact', exact: true }).click();
   await expect(page).toHaveURL(/filtre=review/);
   await expect.poll(async () => (await backup(request)).campaignData!.candidates.find(item => item.id === candidate.id)?.status).toBe('accepted');
   const accepted = await backup(request), companyId = accepted.campaignData!.candidates.find(item => item.id === candidate.id)!.companyId;
@@ -223,11 +226,15 @@ test('V2 P1 — reconfirmer une retenue conserve ses preuves et le retrait garde
     await expect.poll(async () => participation(await backup(request), campaignId, company.id).drafts?.length).toBe(2);
     const before = participation(await backup(request), campaignId, company.id);
     await page.goto(`/campagnes/lots/${runId}?filtre=accepted&candidat=${social.id}`);
+    await page.getByRole('button', { name: 'Modifier mes choix', exact: true }).click();
     await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+    await openFactSection(page, 'social-fact-8');
     await expect(page.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Preuve sélectionnée', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('checkbox', { name: /04 00 00 01 23/ })).toBeChecked();
-    await page.getByRole('button', { name: 'Garder dans la campagne', exact: true }).click();
-    await expect(page).toHaveURL(/filtre=review/);
+    await openContactChoices(page);
+    await expect(page.locator('.review-contact-choices').getByText(/^Téléphone public : 04 00 00 01 23/)).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: /04 00 00 01 23/ })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Enregistrer mes choix', exact: true }).click();
+    await expect(page).toHaveURL(/filtre=accepted/);
     const reconfirmed = participation(await backup(request), campaignId, company.id);
     expect(reconfirmed.findingIds).toEqual(before.findingIds);
     expect(reconfirmed.findingIds).toContain(`${social.id}:social-fact-8`);
