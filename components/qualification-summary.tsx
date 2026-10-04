@@ -4,7 +4,7 @@ import { evaluateQualification, emptyQualification, OBSERVATION_OPTIONS } from '
 import type { Company, Settings } from '@/lib/types';
 import type { CriterionEvaluation, QualificationData, QualificationEvaluation, ManualObservationKey } from '@/lib/qualification-types';
 
-type Props = { company: Company & { qualification?: QualificationData }; settings: Settings; today: string };
+type Props = { company: Company & { qualification?: QualificationData }; settings: Settings; today: string; contactDecision?:string };
 
 function SourceLink({ url, label = 'Consulter la source' }: { url: string; label?: string }) {
   if (!/^https?:\/\//i.test(url)) return <p className="qual-evidence-text">{url}</p>;
@@ -17,8 +17,9 @@ function ScoreValue({ evaluation, compact = false }: { evaluation: Qualification
   return <div className={compact ? 'score-cell-value' : 'qual-score-value'}><strong className="qual-score-incomplete">{evaluation.confirmedPoints} points confirmés</strong><span className="qual-score-caption">{evaluation.completedCount} critères sur 5 renseignés</span></div>;
 }
 
-export function ScoreCell({ company, settings, today }: Props) {
+export function ScoreCell({ company, settings, today,contactDecision }: Props) {
   const evaluation = evaluateQualification(company, settings, today);
+  if(company.readiness&&contactDecision)return <div className="score-cell"><span className={'badge '+(contactDecision==='Prêt à contacter'?'badge-good':'')}>{contactDecision}</span><span className="small muted">Cible · motif · contact</span></div>;
   return <div className="score-cell">
     <ScoreValue evaluation={evaluation} compact/>
     <span className={`badge ${evaluation.decision === 'Prêt à contacter' ? 'badge-good' : evaluation.decision === 'Ne plus contacter' ? 'badge-blocked' : ''}`}>{evaluation.decision}</span>

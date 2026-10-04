@@ -321,3 +321,40 @@ test('le délai global borne même un résolveur ou transport qui ignore le sign
     assert.match(result.warnings.join(' '), /délai maximal/);
   }
 });
+
+test('les prestations, réalisations, clientèle et zones déclarées sont conservées sans inventer de problème', async () => {
+  const f=fixture({[`${origin}/`]:html(`
+    <nav><h2>Services de navigation</h2><p>Texte du menu à exclure.</p></nav>
+    <h1>Atelier de peinture</h1><p>Nous réalisons des travaux de peinture pour les particuliers et les commerces.</p>
+    <h2>Nos prestations</h2><ul><li><p>Rénovation de façades.</p></li><li>Peinture intérieure et pose de revêtements.</li></ul>
+    <h2>Nos réalisations</h2><h3>Maison de quartier</h3><p>Rénovation des murs de cette maison.</p>
+    <h2>Notre clientèle et zone d’intervention</h2><p>Particuliers et commerces à Montpellier et dans les communes voisines.</p>
+    <div hidden><h2>Services cachés</h2><p>Déclaration masquée.</p></div><script>const description='Contenu du script';</script>
+    <footer><h2>Services légaux</h2><p>Texte du pied de page à exclure.</p></footer>
+    <a href="/prestations">Nos prestations</a><a href="/realisations">Voir tous les projets</a>
+  `),[`${origin}/prestations`]:html('<h1>Nos services de peinture</h1><p>Conseils sur les teintes et préparation des supports avant application.</p>')});
+  const result=await f.analyze(origin);
+  assert.deepEqual(f.requests.map(request=>request.url.pathname),['/robots.txt','/','/prestations']);
+  assert.equal(result.content?.length,5);
+  const declared=result.content!.map(block=>`${block.title} ${block.excerpt}`).join(' ');
+  assert.match(declared,/Rénovation de façades/);assert.equal(declared.match(/Rénovation de façades/g)?.length,1);
+  assert.match(declared,/Maison de quartier/);assert.match(declared,/Particuliers et commerces à Montpellier/);assert.match(declared,/préparation des supports/);
+  assert.ok(!/menu à exclure|Déclaration masquée|Contenu du script|pied de page à exclure/.test(declared));
+  assert.ok(result.content!.every(block=>block.url===`${origin}/`||block.url===`${origin}/prestations`));
+  assert.ok(result.content!.every(block=>block.collectedAt==='2026-10-04T10:00:00.000Z'));
+  assert.ok(!result.findings.some(finding=>/clientèle|réalisations|refonte|demande d’achat/.test(finding.note)));
+  assert.match(result.warnings.join(' '),/déclarés par le site.*n’est pas exhaustive.*ne vérifie pas/);
+});
+
+test('les extraits sont bornés explicitement par page et les autres blocs ne deviennent pas des constats', async () => {
+  const f=fixture({[`${origin}/`]:html(Array.from({length:12},(_,index)=>`<h2>Prestation ${index}</h2><p>${'Présentation publique. '.repeat(100)}</p>`).join(''))});
+  const result=await f.analyze(origin);
+  assert.equal(result.content?.length,8);assert.ok(result.content!.every(block=>block.title.length<=160&&block.excerpt.length<=1200));
+  assert.match(result.warnings.join(' '),/atteignent une limite de collecte/);
+  assert.ok(!result.findings.some(finding=>/Prestation \d|Présentation publique/.test(finding.note)));
+});
+
+test('une page sans présentation structurée garde une couverture explicite sans déclarations inventées', async () => {
+  const f=fixture({[`${origin}/`]:html('<div id="root"></div><script>window.services=["Peinture"]</script>')});
+  const result=await f.analyze(origin);assert.deepEqual(result.content,[]);assert.match(result.warnings.join(' '),/JavaScript non lus/);
+});

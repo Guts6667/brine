@@ -1,4 +1,5 @@
 import type { QualificationData } from './qualification-types';
+import type { ContactReadiness, ApproachPlan, ContactDraft, ContactEvent } from './research-types';
 export type Answer = 'yes' | 'no' | 'unknown';
 export const stages = ['À étudier', 'À contacter', 'En échange', 'Opportunité qualifiée', 'Proposition envoyée', 'Gagné', 'Perdu'] as const;
 export type Stage = typeof stages[number];
@@ -13,6 +14,7 @@ export interface Company {
   contact: Contact; nextAction: NextAction | null; createdAt: string; updatedAt: string;
   qualification?: QualificationData;
   campaignId?: string; campaignName?: string; participationRevision?: number; approach?: string; findingIds?: string[];
+  readiness?: ContactReadiness; plan?: ApproachPlan; planHistory?: ApproachPlan[]; drafts?: ContactDraft[]; contactEvents?: ContactEvent[];
 }
 export type CompanyInput = Pick<Company, 'name' | 'website' | 'city' | 'business'>;
 export type CompanyDetails = Omit<Company, 'id' | 'nextAction' | 'createdAt' | 'updatedAt' | 'oppositionActive' | 'oppositionDate' | 'oppositionNote' | 'archived' | 'qualification'>;
@@ -28,5 +30,5 @@ export interface AiTest {
 }
 export type AiTestInput = Omit<AiTest, 'id' | 'companyId' | 'createdAt'>;
 export interface Settings { targetCity: string; targetBusiness: string; targetCompanyType?: string; targetOffer?: string; targetExclusions?: string }
-export interface Backup { schemaVersion: 1 | 2 | 3; campaignData?: import('./campaign-types').CampaignBackupData; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
+export interface Backup { schemaVersion: 1 | 2 | 3 | 4; campaignData?: import('./campaign-types').CampaignBackupData; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
 export interface ActionState { ok?: boolean; error?: string; fields?: Record<string, string>; duplicates?: { id: string; name: string }[]; message?: string }

@@ -6,7 +6,7 @@ const require=createRequire(import.meta.url);
 const route=require('../.next/server/app/.well-known/workflow/v1/flow/route.js');
 await route.routeModule.ensureUserland();
 const steps=globalThis[Symbol.for('@workflow/core//registeredSteps')];
-for(const name of ['claim','populate','html','mobile','finish','dispatchNext']){
+for(const name of ['claim','populate','panel','html','mobile','report','finish','dispatchNext']){
   assert.ok(steps?.has(`step//./workflows/discovery//${name}`),`Missing cold-start workflow step: ${name}`);
 }
-console.log('All six discovery steps are registered in a cold workflow handler.');
+console.log('All eight discovery steps are registered in a cold workflow handler.');

@@ -27,12 +27,14 @@ async function serialize<T>(store: AutomationStore, work: () => Promise<T>): Pro
 }
 
 const boundedText = (maximum: number) => z.string().trim().max(maximum);
-const httpUrl = boundedText(2000).min(1).refine((value) => {
+const publicUrl = (maximum: number) => boundedText(maximum).min(1).refine((value) => {
   try {
     const url = new URL(value);
     return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname) && !url.username && !url.password && !/\s/.test(value);
   } catch { return false; }
 }, 'Utilisez une URL http:// ou https:// valide.');
+const httpUrl = publicUrl(2000);
+const siteContentSchema = z.array(z.object({url:publicUrl(2048),title:boundedText(160),excerpt:boundedText(1200).min(1),collectedAt:z.iso.datetime().max(40)}).strict()).max(24).refine(blocks=>blocks.every(block=>blocks.filter(other=>other.url===block.url).length<=8),'La collecte est limitée à huit extraits par page.');
 const candidateSchema = z.object({
   siren: z.string().regex(/^\d{9}$/, 'SIREN invalide.'),
   siret: z.string().regex(/^(?:\d{14})?$/, 'SIRET invalide.'),
@@ -60,9 +62,10 @@ const analysisSchema = z.object({
   contacts: z.array(contactSuggestionSchema).max(100),
   findings: z.array(findingSchema).max(30),
   warnings: z.array(boundedText(2000)).max(30),
+  content: siteContentSchema.optional(),
 }).strict().superRefine((analysis, context) => {
   const domain = normalizedDomain(analysis.website);
-  for (const source of [...analysis.pages.map(page => page.url), ...analysis.contacts.map(contact => contact.sourceUrl)]) {
+  for (const source of [...analysis.pages.map(page => page.url), ...analysis.contacts.map(contact => contact.sourceUrl), ...(analysis.content||[]).map(block=>block.url)]) {
     if (normalizedDomain(source) !== domain) {
       context.addIssue({ code: 'custom', message: 'Une source de l’analyse ne correspond pas au site analysé.' });
       break;

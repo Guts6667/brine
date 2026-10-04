@@ -151,7 +151,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await page.goto('/prospects?filter=ready');
   await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
   await page.goto('/campagnes/initial');
-  await page.getByText('Modifier la cible et l’offre', {exact:true}).click();
+  await page.getByRole('link', {name:'Cibler',exact:true}).click();
   await page.getByLabel('Commune', { exact: true }).fill('Sète — cible E2E modifiée');
   await page.getByRole('button', { name: 'Enregistrer la campagne', exact: true }).click();
   await expect.poll(async () => (await backup(request)).campaignData!.campaigns.find(c=>c.id==='initial')!.targetCity).toBe('Sète — cible E2E modifiée');

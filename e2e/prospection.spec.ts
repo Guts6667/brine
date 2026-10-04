@@ -122,18 +122,22 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await expect(page.getByText(name, { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: /En retard/ })).toBeVisible();
 
-  await page.goto(`/prospects/${id}`);
+  await page.goto('/');
   await page.getByRole('button', { name: 'Reporter', exact: true }).click();
   const reportDialog = page.getByRole('dialog');
   await reportDialog.getByLabel('Nouvelle date', { exact: true }).fill(dateInParis());
   await reportDialog.getByRole('button', { name: 'Confirmer le report', exact: true }).click();
-  await expect(reportDialog.getByRole('status')).toContainText('Action reportée.');
-  await closeDialog(page);
+  // Moving the action from overdue to today remounts its row and closes the dialog.
+  await expect.poll(async () => (await backup(request)).companies.find(company => company.id === id)!.nextAction!.date).toBe(dateInParis());
+  await expect(reportDialog).not.toBeVisible();
   expect((await backup(request)).companies.find(company => company.id === id)!.nextAction!.date).toBe(dateInParis());
 
   await page.goto('/');
   await expect(page.getByText(name, { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Fait', exact: true }).click();
+  await page.getByRole('link', { name: 'Enregistrer le résultat', exact: true }).click();
+  await page.getByLabel('Ce que vous avez fait', {exact:true}).selectOption('action');
+  await page.getByRole('radio', {name:'Aucun suivi prévu',exact:true}).check();
+  await page.getByRole('button',{name:'Enregistrer le résultat et la suite',exact:true}).click();
   await expect.poll(async () => (await backup(request)).companies.find(company => company.id === id)!.nextAction).toBeNull();
   await page.goto(`/prospects/${id}`);
   await expect(page.getByRole('region', { name: 'Notes et échanges', exact: true }).getByRole('listitem').filter({ hasText: 'Action terminée' })).toContainText('Appeler pour présenter le constat');
@@ -280,7 +284,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Restauration terminée.' })).toBeVisible();
   const normalized = await backup(request);
-  expect(normalized.schemaVersion).toBe(3);
+  expect(normalized.schemaVersion).toBe(4);
   expect(normalized.companies).toHaveLength(prior.companies.length);
   expect(normalized.aiTests).toEqual(prior.aiTests);
   for (const activity of prior.activities) expect(normalized.activities).toContainEqual(activity);

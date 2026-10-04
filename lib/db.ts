@@ -357,7 +357,7 @@ export class Store {
 
   exportBackup(): Backup {
     return this.db.transaction(() => {const ready=this.db.prepare("SELECT 1 FROM campaign_meta WHERE id = 'initial'").get();return ({
-      schemaVersion: ready ? 3 as const : 2 as const,
+      schemaVersion: ready ? 4 as const : 2 as const,
       ...(ready ? {campaignData:campaignSnapshot(campaignSelects.map(sql=>this.db.prepare(sql).all() as Record<string,unknown>[]))}:{}),
       exportedAt: now(), companies: this.listCompanies(),
       activities: this.db.prepare('SELECT * FROM activities ORDER BY createdAt, rowid').all() as Activity[],
@@ -431,7 +431,7 @@ export class Store {
       const backupPath = join(backupDirectory, `avant-restauration-${now().replace(/[:.]/g, '-')}-${randomUUID()}.json`);
       writeFileSync(backupPath, JSON.stringify(existing, null, 2), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       this.db.transaction(() => {
-        for(const table of ['campaign_activity_context','discovery_candidates','discovery_runs','company_registry_identity','campaign_participations'])this.db.prepare(`DELETE FROM ${table}`).run();
+        for(const table of ['campaign_activity_context','discovery_candidates','discovery_runs','company_registry_identity','company_source_identity','research_fact_corrections','campaign_participations'])this.db.prepare(`DELETE FROM ${table}`).run();
         this.db.prepare('DELETE FROM companies').run(); // Child rows cascade in this same transaction.
         for (const company of incoming.companies) this.insertCompany(company);
         for (const activity of incoming.activities) this.insertActivity(activity);

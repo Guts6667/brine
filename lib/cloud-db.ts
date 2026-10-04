@@ -345,7 +345,7 @@ export class AsyncCloudStore {
     const results = await tx.batch(['SELECT * FROM activities ORDER BY createdAt, rowid', 'SELECT * FROM ai_tests ORDER BY createdAt, rowid', 'SELECT targetCity, targetBusiness, targetCompanyType, targetOffer, targetExclusions FROM settings WHERE id = 1']);
     const ready=(await tx.execute("SELECT 1 FROM campaign_meta WHERE id = 'initial'")).rows.length>0;
     const extra=ready?campaignSnapshot((await tx.batch(campaignSelects)).map(r=>r.rows as unknown as Record<string,unknown>[])):undefined;
-    return { schemaVersion: ready?3:2, ...(extra?{campaignData:extra}:{}), exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
+    return { schemaVersion: ready?4:2, ...(extra?{campaignData:extra}:{}), exportedAt: now(), companies, activities: results[0].rows as unknown as Activity[], aiTests: results[1].rows.map(aiFromRow), settings: results[2].rows[0] as unknown as Settings };
   }
   exportBackup(): Promise<Backup> { return this.transact('read', (tx) => this.snapshot(tx)); }
 
@@ -387,7 +387,7 @@ export class AsyncCloudStore {
       const recoveryId = randomUUID();
       await tx.execute(statement('INSERT INTO brine_restore_backups(id, createdAt, payload) VALUES (?, ?, ?)', [recoveryId, now(), JSON.stringify(existing)]));
       // Explicit deletion also protects restoration if a database is configured without FK cascades.
-      await tx.batch(['DELETE FROM campaign_activity_context','DELETE FROM discovery_candidates','DELETE FROM discovery_runs','DELETE FROM company_registry_identity','DELETE FROM campaign_participations','DELETE FROM next_actions', 'DELETE FROM contacts', 'DELETE FROM activities', 'DELETE FROM ai_tests', 'DELETE FROM companies']);
+      await tx.batch(['DELETE FROM campaign_activity_context','DELETE FROM discovery_candidates','DELETE FROM discovery_runs','DELETE FROM company_registry_identity','DELETE FROM company_source_identity','DELETE FROM research_fact_corrections','DELETE FROM campaign_participations','DELETE FROM next_actions', 'DELETE FROM contacts', 'DELETE FROM activities', 'DELETE FROM ai_tests', 'DELETE FROM companies']);
       const statements = [...incoming.companies.flatMap(companyStatements), ...incoming.activities.map(activityStatement), ...incoming.aiTests.map(aiStatement), statement('UPDATE settings SET targetCity = ?, targetBusiness = ?, targetCompanyType = ?, targetOffer = ?, targetExclusions = ? WHERE id = 1', [incoming.settings.targetCity, incoming.settings.targetBusiness, incoming.settings.targetCompanyType || '', incoming.settings.targetOffer || '', incoming.settings.targetExclusions || ''])];
       for (let offset = 0; offset < statements.length; offset += 100) await tx.batch(statements.slice(offset, offset + 100));
       const campaignStatements=campaignRestoreStatements(incoming,existing);

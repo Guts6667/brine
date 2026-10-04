@@ -201,8 +201,12 @@ const currentBackupSchema = z.object({
   ...backupFields, schemaVersion: z.literal(2), companies: z.array(companySchema), settings: z.object(fullSettingsFields).strict(),
 }).strict();
 const campaignVersionSchema = currentBackupSchema.extend({schemaVersion:z.literal(3),campaignData:campaignBackupSchema}).strict();
-export const backupSchema = z.discriminatedUnion('schemaVersion', [legacyBackupSchema, currentBackupSchema, campaignVersionSchema], { error: 'Cette sauvegarde doit utiliser le format Brine version 1, 2 ou 3.' }).superRefine((backup, context) => {
+const researchVersionSchema = campaignVersionSchema.extend({schemaVersion:z.literal(4)}).strict();
+export const backupSchema = z.discriminatedUnion('schemaVersion', [legacyBackupSchema, currentBackupSchema, campaignVersionSchema, researchVersionSchema], { error: 'Cette sauvegarde doit utiliser le format Brine version 1, 2, 3 ou 4.' }).superRefine((backup, context) => {
   checkCampaignRelations(backup, message => context.addIssue({code:'custom',message}));
+  if(backup.schemaVersion===4)backup.campaignData.candidates.forEach((candidate,index)=>{
+    if(!/^(?:\d{9})?$/.test(candidate.company.siren)||!/^(?:\d{14})?$/.test(candidate.company.siret)||(candidate.company.siren&&candidate.company.siret&&!candidate.company.siret.startsWith(candidate.company.siren)))context.addIssue({code:'custom',path:['campaignData','candidates',index,'company'],message:'Une identité officielle doit être un vrai SIREN/SIRET cohérent ou rester vide.'});
+  });
   const seen = new Set<string>();
   const registerId = (id: string, path: (string | number)[]) => {
     if (seen.has(id)) context.addIssue({ code: 'custom', path, message: 'Identifiant dupliqué dans la sauvegarde.' });

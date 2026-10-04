@@ -47,7 +47,7 @@ test('cloud adapter starts empty, saves name-only companies and persists over a 
     assert.deepEqual(await f.reopen().getCompany(company.id), company);
     assert.deepEqual(await f.store.getSettings(), { targetCity: 'Lyon', targetBusiness: 'Menuiserie', targetCompanyType: '', targetOffer: '', targetExclusions: '' });
     const migrations = await f.client.execute('SELECT version FROM schema_migrations ORDER BY version');
-    assert.deepEqual(migrations.rows.map(({ version }) => version), [1, 2, 3, 4]);
+    assert.deepEqual(migrations.rows.map(({ version }) => version), [1, 2, 3, 4, 5]);
   } finally { f.dispose(); }
 });
 

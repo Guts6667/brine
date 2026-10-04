@@ -67,9 +67,8 @@ export function PlanAction({company:c,compact=false}:{company:Company;compact?:b
   </Modal>;
 }
 export function ActionButtons({company:c}:{company:Company}) {
-  const [state,dispatch,pending]=useActionState(completeAction.bind(null,c.id),{});
-  return <div className="action-controls"><div className="button-row"><form action={dispatch}><CampaignFields/><input type="hidden" name="expectedId" value={c.nextAction?.id??''}/><button type="submit" className="button secondary small-button" disabled={pending}><Check size={16}/>{pending?'En cours…':'Fait'}</button></form>
-    <Modal title="Reporter l’action" button="Reporter" buttonClass="button text-button small-button" icon={<RotateCcw size={14}/>}><ActionForm action={postponeAction.bind(null,c.id)} submit="Confirmer le report" className="stack"><input type="hidden" name="expectedId" value={c.nextAction?.id??''}/><p className="muted">{c.nextAction?.text}</p><Field name="date" label="Nouvelle date" type="date" value={c.nextAction?.date} help="Effacez la date pour laisser l’action à planifier."/></ActionForm></Modal></div><Feedback state={state}/>{state.ok&&<PlanAction company={{...c,nextAction:null}} compact/>}</div>;
+  return <div className="action-controls"><div className="button-row"><Link className="button secondary small-button" href={'/campagnes/'+(c.campaignId||'initial')+'?etape=suivre&prospect='+c.id}><Check size={16}/>Enregistrer le résultat</Link>
+    <Modal title="Reporter l’action" button="Reporter" buttonClass="button text-button small-button" icon={<RotateCcw size={14}/>}><ActionForm action={postponeAction.bind(null,c.id)} submit="Confirmer le report" className="stack"><input type="hidden" name="expectedId" value={c.nextAction?.id??''}/><p className="muted">{c.nextAction?.text}</p><Field name="date" label="Nouvelle date" type="date" value={c.nextAction?.date} help="Effacez la date pour laisser l’action à planifier."/></ActionForm></Modal></div></div>;
 }
 export function AddActivity({id}:{id:string}) {
   const [type,setType]=useState('Appel');

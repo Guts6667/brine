@@ -1,4 +1,4 @@
-import { campaignSql } from './campaign-schema';
+import { campaignSql, researchSql } from './campaign-schema';
 // SQL is embedded so serverless functions do not depend on a writable or bundled migrations directory.
 // Keep migration 1 identical to migrations/001_initial.sql; the adapter test verifies that parity.
 export const cloudMigrations = [
@@ -93,4 +93,5 @@ ALTER TABLE settings ADD COLUMN targetOffer TEXT NOT NULL DEFAULT '';
 ALTER TABLE settings ADD COLUMN targetExclusions TEXT NOT NULL DEFAULT '';
 ` },
   { version: 4, filename: '004_campaigns.sql', sql: campaignSql },
+  { version: 5, filename: '005_research.sql', sql: researchSql },
 ] as const;

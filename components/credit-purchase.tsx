@@ -1,0 +1,5 @@
+'use client';
+import { useState } from 'react';
+import { CampaignMutation } from './campaign-forms';
+import { creditPurchaseAction } from '@/app/v2-actions';
+export function CreditPurchaseForm({today}:{today:string}){const [id]=useState(()=>crypto.randomUUID());return <CampaignMutation action={creditPurchaseAction} submit="Enregistrer cet achat déjà payé" secondary><input type="hidden" name="purchaseId" value={id}/><div className="form-grid"><div className="field"><label htmlFor="purchase-date">Date du paiement</label><input type="date" name="date" id="purchase-date" required defaultValue={today}/></div><div className="field"><label htmlFor="purchase-euro">Montant payé en euros, frais compris</label><input type="number" name="amountEuro" id="purchase-euro" required min="0.01" max="10" step="0.01"/></div></div><div className="field"><label htmlFor="purchase-note">Référence ou note (sans secret)</label><input name="notes" id="purchase-note" maxLength={1000}/></div><p className="field-help">Brine ne recharge aucun compte. Ce registre distingue les achats de crédits de leur consommation et conserve les montants après restauration.</p></CampaignMutation>;}

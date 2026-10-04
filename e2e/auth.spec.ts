@@ -8,7 +8,7 @@ const origin = 'http://127.0.0.1:3200';
 test.describe('accès privé', () => {
   test('connexion requise, création et export authentifiés, puis déconnexion', async ({ page }) => {
     const requestedRoute = '/prospects?filter=archived&q=acc%C3%A8s';
-    for (const route of ['/', '/sauvegarde', requestedRoute]) {
+    for (const route of ['/', '/sauvegarde', '/campagnes/rapports/inconnu?campagne=initial', '/campagnes/rapports/candidat/inconnu', requestedRoute]) {
       await page.goto(route);
       const loginUrl = new URL(page.url());
       expect(loginUrl.pathname).toBe('/connexion');

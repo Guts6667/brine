@@ -2,6 +2,7 @@ import { createClient } from '@libsql/client';
 import { AsyncCloudStore } from './cloud-db';
 import { CampaignRepository } from './campaign-repository';
 import type { CompanyInput, CompanyDetails, AiTestInput } from './types';
+import type { ApproachPlan, ContactDraft, ContactEvent, ContactReadiness } from './research-types';
 
 const globalRepositories = globalThis as typeof globalThis & { campaignRepository?: Promise<CampaignRepository> };
 export async function getCampaignRepository(): Promise<CampaignRepository> {
@@ -13,7 +14,20 @@ async function initialize() {
   else {if(process.env.VERCEL==='1')throw new Error('Configurez la base distante.');const {getStore}=await import('./db');const store=getStore();if(!('path' in store))throw new Error('Base locale indisponible.');url=`file:${store.path}`;}
   const repo=new CampaignRepository(createClient({url,authToken:process.env.TURSO_AUTH_TOKEN}));await repo.bootstrap();return repo;
 }
-export async function resetCampaignRepository(){const current=globalRepositories.campaignRepository;globalRepositories.campaignRepository=undefined;if(current)(await current).close();}
+export async function resetCampaignRepository(){
+  const current=globalRepositories.campaignRepository;
+  if(!current){await getCampaignRepository();return;}
+  // Restoration changes the durable epoch and rows, not the repository's client.
+  // Keep its file connections open alongside the legacy SQLite store: closing
+  // the pool during active requests can detach the engines' WAL views. Bootstrap
+  // only reconstructs campaign context for an imported v1/v2 backup.
+  const refreshed=current.then(async repo=>{await repo.bootstrap();return repo;}).catch(error=>{
+    if(globalRepositories.campaignRepository===refreshed)globalRepositories.campaignRepository=current;
+    throw error;
+  });
+  globalRepositories.campaignRepository=refreshed;
+  await refreshed;
+}
 export async function getCampaignContext(campaignId='initial',expectedRevision?:number){const repo=await getCampaignRepository();await repo.getCampaign(campaignId);return new CampaignContextStore(repo,campaignId,expectedRevision);}
 class CampaignContextStore {
   constructor(readonly repo:CampaignRepository,readonly campaignId:string,readonly expectedRevision?:number){}
@@ -26,6 +40,10 @@ class CampaignContextStore {
   saveQualification(id:string,input:unknown,confirm:boolean,target:unknown){return this.repo.saveQualification(this.campaignId,id,input,confirm,target,this.expectedRevision);}
   saveObservations(id:string,input:unknown){return this.repo.saveObservations(this.campaignId,id,input,this.expectedRevision);}
   saveAfterExchange(id:string,input:unknown){return this.repo.saveAfterExchange(this.campaignId,id,input,this.expectedRevision);}
+  getCompanyReport(id:string){return this.repo.getCompanyReport(this.campaignId,id);}
+  savePreparation(id:string,input:{readiness?:ContactReadiness;plan?:ApproachPlan;drafts?:ContactDraft[]}){return this.repo.savePreparation(this.campaignId,id,input,this.expectedRevision);}
+  recordContact(id:string,input:ContactEvent,completeActionId?:string|null){return this.repo.recordContact(this.campaignId,id,input,this.expectedRevision,completeActionId);}
+  completeActionWithOutcome(id:string,expectedActionId:string,input:{submittedKey:string;note:string;date?:string;nextAction:{text:string;date:string}|null}){return this.repo.completeActionWithOutcome(this.campaignId,id,expectedActionId,input,this.expectedRevision);}
   qualifyOpportunity(id:string){return this.repo.qualifyOpportunity(this.campaignId,id,this.expectedRevision);}
   async findDuplicates(input:CompanyInput,exclude?:string){return (await this.base()).findDuplicates(input,exclude);}
   setAction(id:string,input:unknown,expected?:string|null){return this.repo.setAction(this.campaignId,id,input,expected,this.expectedRevision);}

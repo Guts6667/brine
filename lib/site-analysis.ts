@@ -12,6 +12,7 @@ export interface SiteAnalysis {
   website: string;
   analyzedOn: string;
   pages: Array<{ url: string; title: string }>;
+  content?: Array<{ url: string; title: string; excerpt: string; collectedAt: string }>;
   contacts: Array<{ kind: 'email' | 'phone' | 'formUrl'; value: string; sourceUrl: string }>;
   findings: Array<{
     id: string;
@@ -52,6 +53,9 @@ const MAX_REDIRECTS = 4;
 const MAX_REQUESTS = 20;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const STATIC_WARNING = 'Analyse du HTML public uniquement : aucun JavaScript exécuté, aucun audit visuel du rendu mobile ni test de visibilité dans ChatGPT ou Claude.';
+const MAX_CONTENT_BLOCKS_PER_PAGE = 8;
+const MAX_CONTENT_EXCERPT_CHARACTERS = 1200;
+const CONTENT_WARNING = 'Présentation publique : extraits déclarés par le site dans le HTML de l’accueil et au maximum deux pages contact/prestations déjà consultées ; au maximum huit blocs et 1 200 caractères par bloc sur chaque page. Cette collecte n’est pas exhaustive et ne vérifie pas les déclarations du professionnel ; images et contenu chargé par JavaScript non lus.';
 const publicEmailSchema = z.email();
 let activeAnalyses = 0;
 
@@ -278,7 +282,7 @@ function robotsAllows(url: URL, rules: RobotsRule[]): boolean {
 type HtmlNode = DefaultTreeAdapterTypes.Node;
 type HtmlElement = DefaultTreeAdapterTypes.Element;
 type Link = { url: URL; label: string; contact: boolean; services: boolean; action: boolean };
-type ParsedPage = { title: string; contacts: SiteAnalysis['contacts']; links: Link[]; viewport: boolean; visibleLength: number; scripts: number };
+type ParsedPage = { title: string; contacts: SiteAnalysis['contacts']; links: Link[]; viewport: boolean; visibleLength: number; scripts: number; content: Array<{title:string;excerpt:string}>; contentTruncated:boolean };
 const attr = (node: HtmlElement, name: string) => node.attrs.find(attribute => attribute.name === name)?.value || '';
 const ignoredTags = new Set(['script', 'style', 'template', 'noscript']);
 
@@ -302,6 +306,38 @@ function normalizePhone(raw: string): string | undefined {
   const digits = value.replace(/\D/g, '');
   if (value.startsWith('+') && digits.length >= 8 && digits.length <= 15) return `+${digits}`;
   if (/^0[1-9]\d{8}$/.test(digits)) return digits;
+}
+
+/** Keep declared presentation separate from technical findings. This uses only the already fetched HTML. */
+function declaredPresentation(elements:HtmlElement[]):Pick<ParsedPage,'content'|'contentTruncated'> {
+  const content:ParsedPage['content']=[];let contentTruncated=false;
+  let current:{title:string;level:number;excerpt:string}|undefined;
+  // The parsed element list is in preorder. Cached ancestor state keeps this
+  // traversal linear even for a deeply nested, untrusted document.
+  const excluded=new WeakMap<HtmlNode,boolean>(),insideList=new WeakMap<HtmlNode,boolean>();
+  const finish=()=>{
+    if(current?.excerpt){if(content.length<MAX_CONTENT_BLOCKS_PER_PAGE)content.push({title:current.title,excerpt:current.excerpt});else contentTruncated=true;}current=undefined;
+  };
+  const append=(text:string)=>{
+    if(!current||!text)return;
+    const combined=[current.excerpt,text].filter(Boolean).join(' ');if(combined.length>MAX_CONTENT_EXCERPT_CHARACTERS)contentTruncated=true;current.excerpt=combined.slice(0,MAX_CONTENT_EXCERPT_CHARACTERS);
+  };
+  for(const element of elements){
+    const parent=element.parentNode;
+    const omit=Boolean(parent&&excluded.get(parent))||['nav','footer','aside','form'].includes(element.tagName)||['navigation','contentinfo','complementary'].includes(attr(element,'role'));
+    const nestedList=Boolean(parent&&(insideList.get(parent)||'tagName'in parent&&parent.tagName==='li'));
+    excluded.set(element,omit);insideList.set(element,nestedList);
+    if(!/^(?:h[1-3]|p|li)$/.test(element.tagName)||omit||nestedList)continue;
+    const text=cleanText(textContent(element),MAX_CONTENT_EXCERPT_CHARACTERS+1);if(!text)continue;
+    if(/^h[1-3]$/.test(element.tagName)){
+      const level=Number(element.tagName.slice(1)),normalized=text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      const relevant=level===1||/prestation|\bservices?\b|activite|savoir.faire|realisation|projet|chantier|client|secteur|zone|intervention|territoire|qui.sommes|notre.metier|specialit|solution|accompagn|\boffres?\b|competence|expertis|presentation/.test(normalized);
+      if(relevant){finish();current={title:cleanText(text,160),level,excerpt:''};}
+      else if(current&&level>current.level)append(text);
+      else finish();
+    }else append(text);
+  }
+  finish();return {content,contentTruncated};
 }
 
 function parsePage(body: string, url: URL): ParsedPage {
@@ -375,7 +411,7 @@ function parsePage(body: string, url: URL): ParsedPage {
   const titleElement = elements.find(node => node.tagName === 'title');
   return { title: titleElement ? cleanText(textContent(titleElement), 160) : '', contacts, links,
     viewport: elements.some(node => node.tagName === 'meta' && attr(node, 'name').toLowerCase() === 'viewport' && !!attr(node, 'content')),
-    visibleLength: cleanText(content, MAX_HTML_BYTES).length, scripts };
+    visibleLength: cleanText(content, MAX_HTML_BYTES).length, scripts,...declaredPresentation(elements) };
 }
 
 function safeMessage(error: unknown): string {
@@ -390,7 +426,8 @@ export function createSiteAnalyzer(dependencies: SiteAnalysisDependencies) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.min(DEFAULT_TIMEOUT_MS, Math.max(1, dependencies.timeoutMs || DEFAULT_TIMEOUT_MS)));
     const signal = controller.signal;
-    const result: SiteAnalysis = { website: initial.href, analyzedOn: parisDate(dependencies.now?.() || new Date()), pages: [], contacts: [], findings: [], warnings: [STATIC_WARNING] };
+    const collectedAt=(dependencies.now?.()||new Date()).toISOString();
+    const result: SiteAnalysis = { website: initial.href, analyzedOn: parisDate(new Date(collectedAt)), pages: [], content:[], contacts: [], findings: [], warnings: [STATIC_WARNING,CONTENT_WARNING] };
     const policies = new Map<string, Promise<RobotsPolicy>>();
     const lastAccess = new Map<string, number>();
     let requests = 0;
@@ -464,6 +501,8 @@ export function createSiteAnalyzer(dependencies: SiteAnalysisDependencies) {
       }
       const page = parsePage(response.body, url);
       result.pages.push({ url: url.href, title: page.title });
+      result.content!.push(...page.content.map(block=>({url:url.href,...block,collectedAt})));
+      if(page.contentTruncated)warn(`Les extraits de présentation de ${url.href} atteignent une limite de collecte ; des blocs ou passages peuvent manquer. Consultez la page pour compléter le dossier.`);
       for (const contact of page.contacts) if (result.contacts.length < 30 && !result.contacts.some(item => item.kind === contact.kind && item.value.toLowerCase() === contact.value.toLowerCase())) result.contacts.push(contact);
       if (page.contacts.length) addFinding('contact', `${page.contacts.length} moyen(s) de contact publié(s) détecté(s) dans le HTML de cette page.`, url.href);
       if (page.visibleLength < 120 && page.scripts) warn(`Le contenu HTML de ${url.href} est très limité et comporte des scripts ; des informations chargées par JavaScript peuvent manquer.`);
