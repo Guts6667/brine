@@ -1,5 +1,13 @@
 # Brine
 
+## Brine 2.4 — une prochaine action claire
+
+Aujourd’hui met en tête une action réellement prévue, une approche prête à relire, un lot à examiner ou une préparation à compléter. Le lien ouvre directement son contexte dans la campagne. La formation reste accessible dans la navigation et plus bas dans Aujourd’hui ; les modules terminés, les cinq critères et le score sur cent conservent leurs significations propres.
+
+Les justifications longues et les rubriques sans action se déplient à la demande. La liste de qualification s’adapte aussi à la largeur disponible quand le guide est ouvert, sans perdre le texte saisi ni modifier un prospect.
+
+La présentation utilise des bandeaux noirs `#171717`, un espace clair `#F3F0E8`, des surfaces papier `#FFFDF8` et le vert Pickles `#B7D64F` pour les actions et sélections. Une typographie serif italique ponctue les titres ; l’abricot apparaît sur quelques repères. L’app occupe la fenêtre sans bord extérieur ni arrondi de son cadre. Les textes courants restent lisibles, les commandes tactiles mesurent au moins 44 px et les interactions courtes respectent la préférence de mouvement réduit. La palette claire est conservée en apparence système sombre.
+
 ## Brine 2.3 — apprendre à prospecter pour Pickles
 
 **Apprendre** reste accessible dans la navigation. Depuis Aujourd’hui, commencer ou reprendre le parcours ; « Plus tard » masque seulement cette carte. Six modules de 3–5 minutes guident la cible, les preuves, la qualification, l’email, le suivi et le premier échange. Chaque module suit Comprendre → Exemple → Essayer → Retour → Appliquer. Les entreprises, captures et coordonnées des exercices sont explicitement fictives ; aucune IA, recherche, dépense ou modification de prospect n’est nécessaire. La progression est exprimée en modules sur six, séparément du score de qualification réel sur cent.
@@ -48,7 +56,7 @@ La sauvegarde ZIP v6 inclut profil, dossiers, corrections, qualification, plans,
 
 Les commandes npm test, npm run typecheck, npm run build, puis npm run test:workflow-build vérifient les contrats de données, les réservations concurrentes et les huit étapes dans une invocation serveur neuve. npm run test:e2e valide le parcours réel avec le Workflow SDK et des sources déterministes, dont un profil social avec douze observations. npx playwright test --config=playwright.auth.config.ts vérifie l’accès privé dans une base isolée. Un essai en production doit être précédé d’une sauvegarde privée et limité aux sources configurées et aux coûts réservés.
 
-Une application personnelle, en français, pour choisir une entreprise, comprendre pourquoi la contacter et décider de la prochaine action. La base de travail démarre vide. Le mode local ne nécessite aucun compte ni clé API. La version en ligne utilise Vercel et une base Turso privée. L’interface reprend les contrastes de [Studio Pickles](https://www.studiopickles.io/en) : noir, crème, accent citron, boutons en pilule et titres sans sérif/italique. Les polices utilisent les ressources du système, sans téléchargement externe.
+Une application personnelle, en français, pour choisir une entreprise, comprendre pourquoi la contacter et décider de la prochaine action. La base de travail démarre vide. Le mode local ne nécessite aucun compte ni clé API. La version en ligne utilise Vercel et une base Turso privée. L’interface reprend les contrastes de [Studio Pickles](https://www.studiopickles.io/en) : noir, crème, accent citron, boutons en pilule et titres associant sans sérif et serif italique. Les polices utilisent les ressources du système, sans téléchargement externe.
 
 ## Installation et lancement
 
