@@ -16,6 +16,9 @@ import { withDefaultProviderProfile } from './provider-profile';
 import { storeResearchAsset } from './research-assets';
 import { migrateLegacyVisualAssets } from './legacy-visual-assets';
 import { campaignSelects, campaignSnapshot } from './campaign-backup';
+import {learningProgressSchema,learningMutationSchema,emptyLearningProgress} from './learning-schema';
+import type {LearningProgress} from './learning-types';
+import {exerciseReady} from './learning-exercises';
 
 const timestamp = () => new Date().toISOString();
 const json = <T>(value: unknown): T => JSON.parse(String(value));
@@ -32,6 +35,28 @@ let fileWrites: Promise<unknown> = Promise.resolve();
 export class CampaignRepository {
   constructor(readonly client: Client) {}
   close() { this.client.close(); }
+  async getLearningProgress():Promise<LearningProgress>{
+    const row=(await this.client.execute("SELECT payload FROM learning_progress WHERE id='learner'")).rows[0];
+    return row?learningProgressSchema.parse(JSON.parse(String(row.payload))) as LearningProgress:emptyLearningProgress();
+  }
+  async saveLearningProgress(input:unknown):Promise<LearningProgress>{
+    const mutation=learningMutationSchema.parse(input);
+    return this.transaction(async tx=>{
+      const row=(await tx.execute("SELECT payload FROM learning_progress WHERE id='learner'")).rows[0],progress=row?learningProgressSchema.parse(JSON.parse(String(row.payload))) as LearningProgress:emptyLearningProgress();
+      if(progress.revision!==mutation.revision)throw new Error('Votre progression a changé sur un autre écran. Rechargez-la avant de reprendre ; vos réponses déjà enregistrées sont conservées.');
+      switch(mutation.operation){
+        case 'visit':progress.currentModule=mutation.moduleId;progress.currentStep=mutation.step;break;
+        case 'answers':progress.answers[mutation.moduleId]={...progress.answers[mutation.moduleId],...mutation.answers};progress.currentModule=mutation.moduleId;progress.currentStep='practice';break;
+        case 'complete':if(!exerciseReady(mutation.moduleId,progress.answers[mutation.moduleId]||{}))throw new Error('Complétez l’exercice et sa relecture avant de terminer ce module.');if(!progress.completedModules.includes(mutation.moduleId))progress.completedModules.push(mutation.moduleId);progress.currentModule=mutation.moduleId;progress.currentStep='apply';break;
+        case 'campaign':if(mutation.campaignId)await this.campaign(tx,mutation.campaignId);progress.campaignId=mutation.campaignId;break;
+        case 'guide':progress.guideOpen=mutation.guideOpen;break;
+        case 'card':progress.showTodayCard=mutation.showTodayCard;break;
+        case 'mission':progress.mission=mutation.mission;break;
+      }
+      progress.revision++;progress.updatedAt=timestamp();const parsed=learningProgressSchema.parse(progress) as LearningProgress;
+      await tx.execute({sql:"INSERT INTO learning_progress(id,payload) VALUES('learner',?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",args:[JSON.stringify(parsed)]});return parsed;
+    });
+  }
   async transaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
     const execute = async () => {
       for (let attempt = 0; ; attempt++) {

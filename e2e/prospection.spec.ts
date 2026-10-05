@@ -284,7 +284,7 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
   await page.getByRole('button', { name: 'Confirmer la restauration', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Restauration terminée.' })).toBeVisible();
   const normalized = await backup(request);
-  expect(normalized.schemaVersion).toBe(5);
+  expect(normalized.schemaVersion).toBe(6);
   expect(normalized.companies).toHaveLength(prior.companies.length);
   expect(normalized.aiTests).toEqual(prior.aiTests);
   for (const activity of prior.activities) expect(normalized.activities).toContainEqual(activity);

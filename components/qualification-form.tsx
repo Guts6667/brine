@@ -260,7 +260,7 @@ function editableExchange(data: AfterExchangeData): EditableExchange {
   return editable;
 }
 
-export function AfterExchangeForm({ company }: { company: QualifiedCompany }) {
+export function AfterExchangeForm({ company, initiallyOpen = false }: { company: QualifiedCompany; initiallyOpen?: boolean }) {
   const stored = company.qualification ?? emptyQualification();
   const [exchange, setExchange] = useState<EditableExchange>(editableExchange(stored.afterExchange));
   const [opportunityState, opportunityDispatch, qualifying] = useActionState<ActionState, FormData>(qualifyOpportunityAction.bind(null, company.id), {});
@@ -272,7 +272,7 @@ export function AfterExchangeForm({ company }: { company: QualifiedCompany }) {
   const draftEvaluation = evaluateAfterExchange({ ...company, qualification: { ...stored, afterExchange: { ...exchange, qualifiedAt: stored.afterExchange.qualifiedAt } } });
   const changed = JSON.stringify(exchange) !== JSON.stringify(editableExchange(stored.afterExchange));
   const used = JSON.stringify(editableExchange(stored.afterExchange)) !== JSON.stringify(editableExchange(emptyQualification().afterExchange));
-  return <details className="panel after-exchange-block" open={used}>
+  return <details className="panel after-exchange-block" open={used || initiallyOpen}>
     <summary><MessageSquare size={19} aria-hidden="true"/><span><strong>Après l’échange</strong><small>Le besoin reconnu et la possibilité concrète d’avancer.</small></span><ChevronDown size={16} aria-hidden="true"/></summary>
     <div className="after-exchange-body stack">
       <p className="field-help">Enregistrez les propos réellement échangés. Cette qualification ne modifie pas le score avant contact et ne crée pas un second score.</p>

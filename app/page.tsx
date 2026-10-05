@@ -9,10 +9,11 @@ import { evaluateContactReadiness } from '@/lib/contact-preparation';
 import { AddCompany } from '@/components/forms';
 import { TodayRow } from '@/components/presentation';
 import type { Company } from '@/lib/types';
+import { LearningTodayCard } from '@/components/learning-today-card';
 export default async function Today({searchParams}:{searchParams:Promise<{view?:string;campagne?:string}>}) {
   await requireAuthenticated();
   const {view,campagne}=await searchParams, upcoming=view==='upcoming';
-  const repo=await getCampaignRepository(),campaigns=await repo.listCampaigns();
+  const repo=await getCampaignRepository(),[campaigns,learning]=await Promise.all([repo.listCampaigns(),repo.getLearningProgress()]);
   const active=campaigns.filter(c=>c.status==='active'&&(!campagne||c.id===campagne));
   const all=(await Promise.all(active.map(c=>repo.listCompanies(c.id)))).flat(),settings=campaigns.find(c=>c.id===campagne)||campaigns[0],eligible=all.filter(isEligible);
   const campaignSettings=(c:Company)=>campaigns.find(x=>x.id===c.campaignId)||settings;
@@ -37,6 +38,7 @@ export default async function Today({searchParams}:{searchParams:Promise<{view?:
   ];
   return <><div className="page-heading"><div><p className="eyebrow">{date}</p><h1>{upcoming?'La suite se prépare.':'Aujourd’hui'}</h1><p className="page-subtitle">{upcoming?'Un peu d’avance pour vos prochaines conversations.':'Les bonnes conversations commencent par une petite action.'}</p></div><div className="button-row"><Link href="/campagnes" className="button secondary">Trouver mes prochaines entreprises</Link><CampaignProvider id={settings.id}><AddCompany settings={settings}/></CampaignProvider></div></div>
     <nav className="filter-tabs" aria-label="Filtrer les campagnes"><Link href="/" className={!campagne?'selected':''}>Toutes les campagnes</Link>{campaigns.filter(c=>c.status==='active').map(c=><Link key={c.id} href={`/?campagne=${c.id}${upcoming?'&view=upcoming':''}`} className={campagne===c.id?'selected':''}>{c.name}</Link>)}</nav><div className="today-layout"><div className="today-main">
+      {!upcoming&&<LearningTodayCard progress={learning}/>}
       {!all.length&&!upcoming&&<section className="welcome-card"><div><span className="eyebrow">BIENVENUE DANS VOTRE ESPACE</span><h2>Votre première bonne piste<br/><em>commence ici.</em></h2><p>Ajoutez une entreprise, notez ce qui mérite une conversation,<br className="desktop-only"/> puis choisissez votre prochaine action.</p><Link href="/prospects" className="button primary">Découvrir mes prospects<ArrowRight size={16}/></Link></div><span className="welcome-doodle" aria-hidden="true"/></section>}
       <div className="list-caption"><span>{upcoming?'À votre rythme':'Votre programme'}</span><Link href={upcoming?'/':'/?view=upcoming'}>{upcoming?'Revenir à aujourd’hui':'Voir les actions à venir'}<ArrowRight size={14}/></Link></div>
       {!upcoming&&<section className="panel today-section"><div className="today-section-heading"><h2><Sprout size={18}/>À examiner et préparer</h2><span className="count">{preparing.length+reviewCounts.reduce((sum,r)=>sum+r.count,0)}</span></div>{reviewCounts.filter(r=>r.count>0).map(({run,count})=><div className="preparation-waiting" key={run.id}><div><strong>{run.target.name}</strong><span className="small muted">{count} résultat(s) à examiner</span></div><Link href={'/campagnes/lots/'+run.id}>Examiner →</Link></div>)}{preparing.map(c=><div className="preparation-waiting" key={c.campaignId+':'+c.id}><div><strong>{c.name}</strong><span className="small muted">{c.campaignName} · {readiness.get(c.campaignId+':'+c.id)?.stale?'Préparation à revalider':'Motif et contact à préparer'}</span></div><Link href={'/campagnes/'+c.campaignId+'?etape=preparer&prospect='+c.id}>Préparer →</Link></div>)}{!preparing.length&&!reviewCounts.some(r=>r.count>0)&&<p className="section-empty">Vos nouvelles pistes apparaîtront ici après la recherche.</p>}</section>}

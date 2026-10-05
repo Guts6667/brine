@@ -356,8 +356,8 @@ export class Store {
   }
 
   exportBackup(): Backup {
-    return this.db.transaction(() => {const ready=this.db.prepare("SELECT 1 FROM campaign_meta WHERE id = 'initial'").get();return ({
-      schemaVersion: ready ? 5 as const : 2 as const,
+    return this.db.transaction(() => {const ready=this.db.prepare("SELECT 1 FROM campaign_meta WHERE id = 'initial' UNION ALL SELECT 1 FROM learning_progress WHERE id = 'learner' LIMIT 1").get();return ({
+      schemaVersion: ready ? 6 as const : 2 as const,
       ...(ready ? {campaignData:campaignSnapshot(campaignSelects.map(sql=>this.db.prepare(sql).all() as Record<string,unknown>[]))}:{}),
       exportedAt: now(), companies: this.listCompanies(),
       activities: this.db.prepare('SELECT * FROM activities ORDER BY createdAt, rowid').all() as Activity[],

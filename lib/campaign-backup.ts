@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { qualificationEnrichmentSchema } from './qualification-enrichment';
 import { comparisonSchema } from './comparison-schema';
 import { clientBriefSchema } from './client-brief-schema';
+import {learningProgressSchema,learningProgressAfterRestore} from './learning-schema';
+import type {LearningProgress} from './learning-types';
 import type { InStatement, InValue } from '@libsql/client';
 import { z } from 'zod';
 import { qualificationDataSchema, targetSnapshotSchema } from './qualification';
@@ -29,17 +31,19 @@ export const campaignBackupSchema=z.object({
   assets:z.array(z.object({id:z.string().regex(/^[a-f0-9]{64}$/),mime:z.literal('image/jpeg'),byteLength:z.number().int().min(1).max(102400),createdAt:date}).strict()).max(10000).optional(),
   comparisons:z.array(comparisonSchema).max(10000).optional(),
   clientBriefs:z.array(clientBriefSchema).max(10000).optional(),
+  learningProgress:learningProgressSchema.optional(),
 }).strict();
 export const campaignTables=['campaigns','campaign_participations','discovery_runs','discovery_candidates','company_registry_identity','campaign_activity_context','company_source_identity','research_provider_profile','research_fact_corrections','research_comparisons','research_client_briefs'] as const;
-export const campaignSelects=[...campaignTables.map(t=>`SELECT * FROM ${t}`),'SELECT id,mime,byteLength,createdAt FROM research_assets'];
+export const campaignSelects=[...campaignTables.map(t=>`SELECT * FROM ${t}`),'SELECT id,mime,byteLength,createdAt FROM research_assets',"SELECT payload FROM learning_progress WHERE id='learner'"];
 const dedupeKey=(candidate:CampaignBackupData['candidates'][number])=>candidate.dedupeKey||(/^\d{9}$/.test(candidate.company.siren)?`siren:${candidate.company.siren}`:candidate.companyId?`company:${candidate.companyId}`:`legacy:${candidate.id}`);
 export function campaignSnapshot(rows:Record<string,unknown>[][]):CampaignBackupData{
   const decode=<T>(index:number):T[]=>rows[index].map(r=>JSON.parse(String(r.payload)) as T);
-  return {campaigns:decode(0),participations:decode(1),runs:decode(2),candidates:decode(3),identities:rows[4] as unknown as CampaignBackupData['identities'],activityCampaigns:rows[5] as unknown as CampaignBackupData['activityCampaigns'],sourceIdentities:rows[6] as unknown as CampaignBackupData['sourceIdentities'],...(rows[7][0]?{providerProfile:JSON.parse(String(rows[7][0].payload))}:{}),corrections:decode(8),comparisons:decode(9),clientBriefs:decode(10),assets:rows[11] as unknown as CampaignBackupData['assets']};
+  return {campaigns:decode(0),participations:decode(1),runs:decode(2),candidates:decode(3),identities:rows[4] as unknown as CampaignBackupData['identities'],activityCampaigns:rows[5] as unknown as CampaignBackupData['activityCampaigns'],sourceIdentities:rows[6] as unknown as CampaignBackupData['sourceIdentities'],...(rows[7][0]?{providerProfile:JSON.parse(String(rows[7][0].payload))}:{}),corrections:decode(8),comparisons:decode(9),clientBriefs:decode(10),assets:rows[11] as unknown as CampaignBackupData['assets'],...(rows[12]?.[0]?{learningProgress:learningProgressSchema.parse(JSON.parse(String(rows[12][0].payload))) as LearningProgress}:{})};
 }
 export function checkCampaignRelations(backup:Backup,issue:(message:string)=>void){
   const data=backup.campaignData;if(!data)return;
   const companies=new Set(backup.companies.map(c=>c.id)),campaigns=new Set(data.campaigns.map(c=>c.id)),runs=new Set(data.runs.map(r=>r.id)),activities=new Set(backup.activities.map(a=>a.id));
+  if(data.learningProgress?.campaignId&&!campaigns.has(data.learningProgress.campaignId))issue('La campagne choisie pour apprendre manque dans cette sauvegarde.');
   const unique=(values:string[])=>new Set(values).size===values.length;
   if(!unique(data.campaigns.map(c=>c.id))||!unique(data.runs.map(r=>r.id))||!unique(data.candidates.map(c=>c.id))||!unique(data.identities.map(i=>i.siren))||!unique(data.activityCampaigns.map(a=>a.activityId))||!unique(data.participations.map(p=>`${p.campaignId}:${p.companyId}`))||!unique(data.candidates.map(c=>`${c.runId}:${dedupeKey(c)}`))||!unique((data.sourceIdentities||[]).map(s=>`${s.provider}:${s.externalId}`)))issue('Identifiant de campagne ou relation dupliqué.');
   if(data.participations.some(p=>!companies.has(p.companyId)||!campaigns.has(p.campaignId))||data.runs.some(r=>!campaigns.has(r.campaignId)||r.companyIds.some(id=>!companies.has(id)))||data.candidates.some(c=>!runs.has(c.runId)||c.companyId&&!companies.has(c.companyId))||data.identities.some(i=>!companies.has(i.companyId))||data.activityCampaigns.some(a=>!activities.has(a.activityId)||!campaigns.has(a.campaignId)))issue('Relation de campagne absente de la sauvegarde.');
@@ -62,10 +66,11 @@ export function checkCampaignRelations(backup:Backup,issue:(message:string)=>voi
 export function campaignRestoreStatements(incoming:Backup,existing:Backup):InStatement[]{
   for(const asset of incoming.campaignData?.assets||[])if(!existing.campaignData?.assets?.some(stored=>stored.id===asset.id&&stored.byteLength===asset.byteLength))throw new Error('Des captures de cette sauvegarde manquent. Restaurez l’archive ZIP complète avec ses images.');
   const statements:InStatement[]=campaignTables.slice().reverse().map(t=>({sql:`DELETE FROM ${t}`,args:[]}));
+  const restoreLearning=(campaignIds:string[])=>{const progress=learningProgressAfterRestore(incoming.campaignData?.learningProgress,existing.campaignData?.learningProgress,campaignIds);if(progress)statements.push({sql:"INSERT INTO learning_progress(id,payload) VALUES('learner',?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",args:[JSON.stringify(progress)]});};
   statements.push({sql:'DELETE FROM campaign_meta',args:[]},{sql:"INSERT INTO campaign_meta(id,value) VALUES('epoch',?)",args:[randomUUID()]});
   if(!incoming.campaignData){
     if(existing.campaignData?.providerProfile)statements.push({sql:"INSERT INTO research_provider_profile(id,payload) VALUES('provider',?)",args:[JSON.stringify(existing.campaignData.providerProfile)]});
-    return statements;
+    restoreLearning([]);return statements;
   }
   const data=structuredClone(incoming.campaignData),old=existing.campaignData;
   data.providerProfile ||= old?.providerProfile;
@@ -95,5 +100,5 @@ export function campaignRestoreStatements(incoming:Backup,existing:Backup):InSta
   for(const c of data.corrections||[])insert('INSERT INTO research_fact_corrections(id,companyId,payload) VALUES (?,?,?)',[c.id,c.companyId,JSON.stringify(c)]);
   for(const row of data.comparisons||[])insert('INSERT INTO research_comparisons(id,campaignId,companyId,payload) VALUES (?,?,?,?)',[row.id,row.campaignId,row.companyId,JSON.stringify(row)]);
   for(const row of data.clientBriefs||[])insert('INSERT INTO research_client_briefs(id,campaignId,companyId,payload) VALUES (?,?,?,?)',[row.id,row.campaignId,row.companyId,JSON.stringify(row)]);
-  if(first)insert("INSERT INTO campaign_meta(id,value) VALUES('initial',?)",[first.id]);return statements;
+  if(first)insert("INSERT INTO campaign_meta(id,value) VALUES('initial',?)",[first.id]);restoreLearning(data.campaigns.map(c=>c.id));return statements;
 }

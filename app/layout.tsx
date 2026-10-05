@@ -10,6 +10,7 @@ import './automation.css';
 import './campaigns.css';
 import './research.css';
 import './visual-evidence.css';
+import './learning.css';
 export const metadata:Metadata={title:{default:'Brine',template:'%s · Brine'},description:'Votre espace personnel de prospection, un contact à la fois.'};
 export const runtime='nodejs';
 export const dynamic='force-dynamic';

@@ -1,5 +1,15 @@
 # Brine
 
+## Brine 2.3 — apprendre à prospecter pour Pickles
+
+**Apprendre** reste accessible dans la navigation. Depuis Aujourd’hui, commencer ou reprendre le parcours ; « Plus tard » masque seulement cette carte. Six modules de 3–5 minutes guident la cible, les preuves, la qualification, l’email, le suivi et le premier échange. Chaque module suit Comprendre → Exemple → Essayer → Retour → Appliquer. Les entreprises, captures et coordonnées des exercices sont explicitement fictives ; aucune IA, recherche, dépense ou modification de prospect n’est nécessaire. La progression est exprimée en modules sur six, séparément du score de qualification réel sur cent.
+
+La simulation de qualification réutilise le barème existant : confirmer une preuve ne donne aucun point ; accepter explicitement une réponse justifiée renseigne son critère. La simulation de suivi réutilise la séquence J0/J+5/J+12 ; copier le texte ne crée aucun contact, une réponse/refus/opposition arrête la séquence. L’email est relu avec une checklist personnelle et limité à 120 mots. Le PDF pédagogique facultatif présente deux pages fictives, sans créer de bilan client. La mission réelle est déclarative, facultative et indépendante des modules terminés.
+
+Les réponses, l’étape courante, la campagne choisie et la préférence du guide sont sauvegardées côté serveur. Des révisions empêchent un second écran d’écraser des réponses plus récentes. « Appliquer à ma campagne » ouvre le contexte correspondant ; « Me guider » accompagne l’objectif, la prochaine action et le critère de fin sans remonter ni vider les formulaires. La sauvegarde ZIP v6 inclut l’apprentissage ; les imports v1–v5 sans progression préservent les réponses existantes. Les dépenses et quotas ne sont jamais restaurés ni remis à zéro.
+
+Dans Contacter et suivre, « Après l’échange » permet de saisir le besoin exprimé, l’intervention pertinente, le chemin de décision et la prochaine étape acceptée dans la campagne. Le guide du dernier module ouvre ce formulaire directement. L’enregistrement conserve les inconnues et laisse la décision de passer à Opportunité qualifiée explicite.
+
 ## Brine 2.2 — qualifier à partir de constats concrets
 
 Le parcours suit **Rechercher → Qualifier → Contacter et suivre**. Créer une campagne avec activité, commune, mots clés et exclusions ; spécialiser l’offre est facultatif. Les codes NAF sont facultatifs. Lancer un lot de dix prospects, quitter la page si nécessaire, puis reprendre les résultats depuis la campagne ou Aujourd’hui. Le profil public de Studio Pickles est proposé par défaut ; les compétences, prestations, références réelles et la signature se modifient dans le contact ou Données et préférences. Un profil personnalisé déjà enregistré reste conservé.
@@ -32,7 +42,7 @@ OpenRouter utilise <code>google/gemini-3.1-flash-lite</code>, sorties structuré
 
 Le plafond d’achats est de **10 €/mois frais compris**, sans recharge automatique. Le registre des achats payés est distinct de la consommation estimée (enveloppe applicative 7 €, clé 5 $). Les estimations de conversion ne représentent pas une facture. Les registres financiers, quotas et clés d’idempotence vivent hors des sauvegardes restaurables : restaurer un ancien fichier ne remet aucun compteur à zéro.
 
-La sauvegarde ZIP v5 inclut profil, dossiers, corrections, qualification, plans, messages, comparaisons, bilans figés et captures privées. Les JSON v1–v4 restent importables. Les travaux inachevés restaurés sont mis en pause. Les migrations SQLite et libSQL/Turso conservent les qualifications détaillées et les oppositions communes.
+La sauvegarde ZIP v6 inclut profil, dossiers, corrections, qualification, plans, messages, comparaisons, bilans figés et captures privées. Les JSON v1–v5 restent importables. Les travaux inachevés restaurés sont mis en pause. Les migrations SQLite et libSQL/Turso conservent les qualifications détaillées et les oppositions communes.
 
 ### Vérification avant livraison
 
@@ -96,7 +106,7 @@ L’archivage est réversible. **Ne plus contacter** est distinct de l’étape 
 
 ## Sauvegarde et restauration
 
-Dans **Données et préférences**, télécharger la sauvegarde complète ZIP : entreprises, contact principal, notes et échanges, historique, prochaines actions, oppositions, relevés IA, cible, campagnes, lots, qualification, observations, préparations, PDF figés et fichiers des captures. Le fichier `brine.json` utilise le schéma v5 et référence les JPEG dédupliqués du dossier `assets/`. Les sauvegardes JSON v1–v4 restent importables. Un export JSON seul contient un manifeste des captures, sans les fichiers ; utiliser le ZIP pour une restauration complète.
+Dans **Données et préférences**, télécharger la sauvegarde complète ZIP : entreprises, contact principal, notes et échanges, historique, prochaines actions, oppositions, relevés IA, cible, campagnes, lots, qualification, observations, préparations, PDF figés et fichiers des captures. Le fichier `brine.json` utilise le schéma v6 et référence les JPEG dédupliqués du dossier `assets/`. Les sauvegardes JSON v1–v5 restent importables. Un export JSON seul contient un manifeste des captures, sans les fichiers ; utiliser le ZIP pour une restauration complète.
 
 Pour restaurer, choisir un ZIP de 110 Mio maximum (104 Mio décompressés) ou un ancien JSON de 4 Mio maximum, vérifier l’aperçu des quantités, puis confirmer le remplacement. Les JPEG sont validés, vérifiés par leur empreinte et transférés avant la restauration des données métier. Tous les éléments et leurs relations sont validés avant le remplacement atomique. Une sauvegarde de l’état précédent est créée dans `data/backups/` en local (ou `backups/` à côté de la base choisie). En ligne, cette copie privée est enregistrée dans Turso au sein de la même transaction et se télécharge depuis **Données et préférences**. Les actifs privés sont conservés séparément ; dépenses, réservations et quotas ne sont jamais remis à zéro.
 
@@ -171,7 +181,7 @@ Les quotas Hobby Workflows incluent actuellement 50 000 événements et 1 Go éc
 
 En développement, le moteur local du SDK nécessite que le serveur et l’ordinateur continuent de fonctionner. Son état `.workflow-data/` est privé et ignoré par Git. Les routes `/.well-known/workflow/` sont réservées au SDK ; toutes les commandes utilisateur restent authentifiées et vérifient l’origine. La route de réconciliation exige exclusivement son secret serveur.
 
-La sauvegarde ZIP **v5** inclut campagnes, participations, rapports, décisions, lots, identités, captures et bilans clients figés. Les JSON v1/v2/v3/v4 restent acceptés. Les traitements inachevés sont restaurés en pause ; aucune restauration ne déclenche une recherche. Les snapshots précédant une restauration contiennent aussi les campagnes.
+La sauvegarde ZIP **v6** inclut campagnes, participations, rapports, décisions, lots, identités, captures et bilans clients figés. Les JSON v1/v2/v3/v4/v5 restent acceptés. Les traitements inachevés sont restaurés en pause ; aucune restauration ne déclenche une recherche. Les snapshots précédant une restauration contiennent aussi les campagnes.
 
 ### Vérification
 

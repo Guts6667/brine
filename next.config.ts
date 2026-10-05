@@ -5,7 +5,7 @@ const config: NextConfig = {
   turbopack: { root: process.cwd() },
   devIndicators: false,
   serverExternalPackages: ['better-sqlite3'],
-  outputFileTracingIncludes: { '/api/client-briefs/**/*': ['./public/pickles-logo.png','./node_modules/@fontsource/inter/files/inter-latin-{400,600}-normal.woff'], '/campagnes/**/*': ['./public/pickles-logo.png','./node_modules/@fontsource/inter/files/inter-latin-{400,600}-normal.woff'] },
+  outputFileTracingIncludes: { '/api/client-briefs/**/*': ['./public/pickles-logo.png','./node_modules/@fontsource/inter/files/inter-latin-{400,600}-normal.woff'], '/api/learning/**/*': ['./public/pickles-logo.png','./public/learning/atelier-sillage-detail.png','./node_modules/@fontsource/inter/files/inter-latin-{400,600}-normal.woff'], '/campagnes/**/*': ['./public/pickles-logo.png','./node_modules/@fontsource/inter/files/inter-latin-{400,600}-normal.woff'] },
   experimental: { serverActions: { bodySizeLimit: '4.4mb' } },
   async headers() {
     return [{ source: '/:path*', headers: [

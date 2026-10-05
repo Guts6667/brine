@@ -70,7 +70,7 @@ for(const kind of ['local','cloud'] as const){
       assert.deepEqual(await f.repo.addVisualObservation(f.candidate.id,1,input()),saved);
       await assert.rejects(f.repo.addVisualObservation(f.candidate.id,1,{...input(),observation:'Une autre erreur visible.'}),/changé/);
       assert.deepEqual(await f.repo.getCandidate(f.candidate.id),saved);
-      const backup=await f.base.exportBackup();assert.equal(backup.schemaVersion,5);assert.equal(backupSchema.safeParse(backup).success,true);
+      const backup=await f.base.exportBackup();assert.equal(backup.schemaVersion,6);assert.equal(backupSchema.safeParse(backup).success,true);
       await f.base.restoreBackup(backup,true);
       assert.deepEqual((await f.repo.getCandidate(f.candidate.id)).research?.facts,saved.research?.facts);
       assert.equal((await f.repo.getCandidate(f.candidate.id)).research?.report?.facts.find(fact=>fact.id===visualFact.id)?.visual?.assetId,assetId);

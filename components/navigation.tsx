@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, Building2, Target, Database, ArrowUpRight } from 'lucide-react';
+import { CalendarDays, Building2, Target, Database, ArrowUpRight,GraduationCap } from 'lucide-react';
 export function Navigation({cloud=false}:{cloud?:boolean}) {
   const path = usePathname();
   return <aside className="sidebar">
@@ -11,6 +11,7 @@ export function Navigation({cloud=false}:{cloud?:boolean}) {
       <Link href="/" className={`nav-link ${path === '/' ? 'active' : ''}`} aria-current={path === '/' ? 'page' : undefined}><CalendarDays size={19}/>Aujourd’hui</Link>
       <Link href="/campagnes" className={`nav-link ${path.startsWith('/campagnes') ? 'active' : ''}`} aria-current={path.startsWith('/campagnes') ? 'page' : undefined}><Target size={19}/>Campagnes</Link>
       <Link href="/prospects" className={`nav-link ${path.startsWith('/prospects') ? 'active' : ''}`} aria-current={path.startsWith('/prospects') ? 'page' : undefined}><Building2 size={19}/>Prospects</Link>
+      <Link href="/apprendre" className={`nav-link ${path.startsWith('/apprendre') ? 'active' : ''}`} aria-current={path.startsWith('/apprendre') ? 'page' : undefined}><GraduationCap size={19}/>Apprendre</Link>
     </nav>
     <div className="sidebar-bottom"><div className="personal-note"><span className="small-leaf">↗</span><p>Un contact à la fois.<br/><strong>À votre rythme.</strong></p></div>
     <Link href="/sauvegarde" className="utility-link"><Database size={16}/>Données et préférences<ArrowUpRight size={14}/></Link>

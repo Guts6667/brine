@@ -5,7 +5,7 @@ test('campagnes indépendantes, fiche commune, contacts préservés et revue mob
   test.setTimeout(120000);const baseline:Backup=await(await request.get('/api/backup')).json();
   try{
     await page.goto('/campagnes/nouvelle');
-    await page.getByLabel('Nom de la campagne',{exact:true}).fill('Campagne navigateur — devis');await page.getByLabel('Commune',{exact:true}).fill('Lyon');await page.getByLabel('Activité recherchée',{exact:true}).fill('Électricité');await page.getByLabel(/Codes d’activité NAF/).fill('43.21A');await page.getByLabel('Offre proposée',{exact:true}).fill('Améliorer les demandes de devis');await page.getByRole('button',{name:'Créer la campagne',exact:true}).click();
+    await page.getByLabel('Nom de la campagne',{exact:true}).fill('Campagne navigateur — devis');await page.getByLabel('Commune',{exact:true}).fill('Lyon');await page.getByLabel('Activité recherchée',{exact:true}).fill('Électricité');await page.getByLabel(/Codes d’activité NAF/).fill('43.21A');await page.getByLabel('Spécialisation de la campagne (facultatif)',{exact:true}).fill('Améliorer les demandes de devis');await page.getByRole('button',{name:'Créer la campagne',exact:true}).click();
     await expect(page.getByRole('heading',{name:'Campagne navigateur — devis',exact:true})).toBeVisible();const campaignId=new URL(page.url()).pathname.split('/').at(-1)!;
     await page.getByRole('button',{name:'Lancer la recherche et l’analyse',exact:true}).click();await expect(page).toHaveURL(/campagnes\/lots/);const runUrl=page.url(),runId=new URL(runUrl).pathname.split('/').at(-1)!;
     await page.goto('/campagnes');await expect.poll(async()=>{const data=await(await request.get('/api/campaign-runs/'+runId)).json();return data.run.status;},{timeout:45000}).toBe('completed');

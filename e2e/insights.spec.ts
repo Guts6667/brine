@@ -50,7 +50,7 @@ async function launch(page: Page, request: APIRequestContext, name: string, hasO
   await page.getByLabel('Activité recherchée', { exact: true }).fill('Électricité');
   await page.getByLabel('Mots clés de recherche', { exact: true }).fill('électricien dépannage');
   await page.getByLabel(/Codes d’activité NAF/).fill('43.21A');
-  await page.getByLabel('Offre proposée', { exact: true }).fill(hasOffer ? 'Sites web et correction ciblée de leur interface' : '');
+  await page.getByLabel('Spécialisation de la campagne (facultatif)', { exact: true }).fill(hasOffer ? 'Sites web et correction ciblée de leur interface' : '');
   await page.getByRole('button', { name: 'Créer la campagne', exact: true }).click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   const campaignId = new URL(page.url()).pathname.split('/').at(-1)!;

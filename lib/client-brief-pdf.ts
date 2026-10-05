@@ -12,7 +12,7 @@ function lines(text:string,font:PDFFont,size:number,width:number):string[]{
   const result:string[]=[];for(const paragraph of text.split('\n')){if(!paragraph.trim()){result.push('');continue;}let line='';for(const word of paragraph.split(/\s+/)){if(font.widthOfTextAtSize(word,size)>width)throw new BriefLayoutError();const next=line?`${line} ${word}`:word;if(font.widthOfTextAtSize(next,size)>width){result.push(line);line=word;}else line=next;}result.push(line);}return result;
 }
 /** Deterministic layout, never a browser or an AI call. Overflow is a review error, not truncation. */
-export async function renderClientBriefPdf(brief:ClientBrief,loadAsset:(id:string)=>Promise<Uint8Array|null>):Promise<Uint8Array>{
+export async function renderClientBriefPdf(brief:ClientBrief,loadAsset:(id:string)=>Promise<Uint8Array|null>,options:{pedagogical?:boolean}={}):Promise<Uint8Array>{
   if(clientBriefWordCount(brief)>450)throw new BriefLayoutError();
   const pdf=await PDFDocument.create();pdf.registerFontkit(fontkit);
   const fontBytes=await readFile(join(process.cwd(),'node_modules/@fontsource/inter/files/inter-latin-400-normal.woff'));
@@ -36,7 +36,7 @@ export async function renderClientBriefPdf(brief:ClientBrief,loadAsset:(id:strin
   for(let index=0;index<brief.points.length;index++){const point=brief.points[index];block(0,`${index+1}. ${point.text}`);if(point.effect)block(0,`Effet possible : ${point.effect}`);if(point.help)block(0,`Aide envisageable : ${point.help}`);}
   const pictures=brief.points.filter(point=>point.fact.visual?.assetId||point.fact.visual?.screenshot).slice(0,1);
   if(pictures.length){const cells= pictures.length===2?2:1,cellWidth=(WIDTH-(cells-1)*12)/cells,images=[];
-    for(const point of pictures){const visual=point.fact.visual!,bytes=visual.assetId?await loadAsset(visual.assetId):Buffer.from(visual.screenshot!.split(',')[1],'base64');if(!bytes)throw new Error('Une capture confirmée manque. Restaurez ses fichiers avant de générer le PDF.');const img=await pdf.embedJpg(bytes),scale=Math.min(cellWidth/img.width,180/img.height);images.push({img,width:img.width*scale,height:img.height*scale,caption:`${visual.device==='mobile'?'Mobile':'Ordinateur'} · ${point.fact.observedOn.slice(0,10)}`});}
+    for(const point of pictures){const visual=point.fact.visual!,bytes=visual.assetId?await loadAsset(visual.assetId):Buffer.from(visual.screenshot!.split(',')[1],'base64');if(!bytes)throw new Error('Une capture confirmée manque. Restaurez ses fichiers avant de générer le PDF.');const png=bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71,img=await (png?pdf.embedPng(bytes):pdf.embedJpg(bytes)),scale=Math.min(cellWidth/img.width,180/img.height);images.push({img,width:img.width*scale,height:img.height*scale,caption:options.pedagogical?`Illustration pédagogique fictive · mobile 390 px · ${date}`:`${visual.device==='mobile'?'Mobile':'Ordinateur'} · ${point.fact.observedOn.slice(0,10)}`});}
     const height=Math.max(...images.map(image=>image.height));if(cursor[0]-height-30<90)throw new BriefLayoutError();for(let index=0;index<images.length;index++){const image=images[index],x=MARGIN+index*(cellWidth+12);pages[0].drawImage(image.img,{x,y:cursor[0]-height,width:image.width,height:image.height});pages[0].drawText(image.caption,{x,y:cursor[0]-height-18,size:11,font,color:muted});}cursor[0]-=height+35;
   }
   block(1,'Repères et prochaines étapes',true);

@@ -9,7 +9,7 @@ const origin = 'http://127.0.0.1:3200';
 test.describe('accès privé', () => {
   test('connexion requise, création et export authentifiés, puis déconnexion', async ({ page }) => {
     const requestedRoute = '/prospects?filter=archived&q=acc%C3%A8s';
-    for (const route of ['/', '/sauvegarde', '/campagnes/rapports/inconnu?campagne=initial', '/campagnes/rapports/candidat/inconnu', requestedRoute]) {
+    for (const route of ['/', '/apprendre', '/apprendre/email', '/sauvegarde', '/campagnes/rapports/inconnu?campagne=initial', '/campagnes/rapports/candidat/inconnu', requestedRoute]) {
       await page.goto(route);
       const loginUrl = new URL(page.url());
       expect(loginUrl.pathname).toBe('/connexion');
@@ -18,7 +18,7 @@ test.describe('accès privé', () => {
       await expect(page.getByRole('button', { name: 'Déconnexion', exact: true })).toHaveCount(0);
     }
 
-    for(const route of ['/api/campaign-runs/unknown','/api/campaign-runs/reconcile','/api/research-assets/'+ 'a'.repeat(64),'/api/client-briefs/unknown'])expect((await page.request.get(route)).status()).toBe(401);
+    for(const route of ['/api/campaign-runs/unknown','/api/campaign-runs/reconcile','/api/research-assets/'+ 'a'.repeat(64),'/api/client-briefs/unknown','/api/learning/example-brief'])expect((await page.request.get(route)).status()).toBe(401);
     expect((await page.request.post('/api/client-briefs/preview',{headers:{Origin:origin,'Sec-Fetch-Site':'same-origin'},data:{}})).status()).toBe(401);
     const invalidWorkflow=await page.request.post('/.well-known/workflow/v1/flow',{data:{runId:'unknown'}});expect(invalidWorkflow.status()).toBeGreaterThanOrEqual(400);
     const anonymousBackup = await page.request.get('/api/backup');
