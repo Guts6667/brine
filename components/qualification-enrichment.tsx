@@ -31,7 +31,7 @@ function Feedback({ state }: { state: ActionState }) {
   return <>{state.error && <p className="form-error" role="alert">{state.error}</p>}{state.ok && state.message && <p className="form-success" role="status">{state.message}</p>}</>;
 }
 
-export function FindingReview({ fact, report, candidateId, revision, readOnly = false }: { fact: ResearchFact; report: ProspectReport; candidateId: string; revision: number; readOnly?: boolean }) {
+export function FindingReview({ fact, report, candidateId, revision, readOnly = false, hideVisual = false }: { fact: ResearchFact; report: ProspectReport; candidateId: string; revision: number; readOnly?: boolean; hideVisual?:boolean }) {
   const [state, dispatch, pending] = useActionState<ActionState, FormData>(reviewFindingAction, {});
   const [note, setNote] = useState(fact.review?.note || '');
   const sources = fact.sourceIds.flatMap(id => { const source = report.sources.find(item => item.id === id); return source ? [source] : []; });
@@ -47,7 +47,7 @@ export function FindingReview({ fact, report, candidateId, revision, readOnly = 
     <div className="qualification-finding-meta"><FindingBadge fact={fact}/><span>{fact.review ? natureLabels[fact.review.nature] : fact.kind === 'observed' ? 'Observation' : 'Information publiée'} · {reportDate(fact.observedOn)}</span></div>
     {fact.text.length > 240 ? <details className="qualification-finding-content"><summary>{shortText(fact.text)} <span>Lire le constat entier</span></summary><p className="qualification-finding-text">{fact.text}</p></details> : <p className="qualification-finding-text">{fact.text}</p>}
     <p className="qualification-finding-scope">{fact.scope}</p>
-    <FactVisualEvidence fact={fact}/>
+    {!hideVisual && <FactVisualEvidence fact={fact}/>}
     <details className="qualification-proof"><summary><ExternalLink size={14} aria-hidden="true"/>Sources et contexte ({sources.length})</summary><div className="stack">{sources.map(source => <div key={source.id}>{/^https?:\/\//i.test(source.url) ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || source.url} <ExternalLink size={14} aria-hidden="true"/></a> : <p>{source.title}</p>}<p className="field-help">{reportDate(source.collectedAt)}</p>{source.excerpt && <p className="qualification-source-excerpt">{source.excerpt}</p>}</div>)}{!reliableSources && <p className="field-help">Une source manque. Complétez la preuve avant de confirmer ce constat.</p>}</div></details>
     {fact.review?.note && <p className="qualification-finding-scope"><strong>Votre précision :</strong> {fact.review.note}</p>}
     {confirmed && <p className="finding-confirmed"><ShieldCheck size={15} aria-hidden="true"/>{fact.review ? 'Constat confirmé' : 'Constat enregistré dans le dossier'} · les points se valident séparément.</p>}
@@ -66,8 +66,8 @@ export function QualificationHighlights({ report, suggestions }: { report: Prosp
   })}</div></section>;
 }
 
-export function QualificationSuggestionPanel({ suggestion, report, candidateId, revision, findingRevision, currentAnswer, hasSavedResponse = false, dirty, onModify, readOnly = false }: {
-  suggestion: QualificationSuggestion; report: ProspectReport; candidateId: string; revision: number; findingRevision: number; currentAnswer: string; hasSavedResponse?: boolean; dirty: boolean; onModify: () => void; readOnly?: boolean;
+export function QualificationSuggestionPanel({ suggestion, report, candidateId, revision, findingRevision, currentAnswer, hasSavedResponse = false, dirty, onModify, readOnly = false, compact = false }: {
+  suggestion: QualificationSuggestion; report: ProspectReport; candidateId: string; revision: number; findingRevision: number; currentAnswer: string; hasSavedResponse?: boolean; dirty: boolean; onModify: () => void; readOnly?: boolean; compact?:boolean;
 }) {
   const [state, dispatch, pending] = useActionState<ActionState, FormData>(decideQualificationSuggestionAction, {});
   const [overwrite, setOverwrite] = useState(false);
@@ -84,7 +84,7 @@ export function QualificationSuggestionPanel({ suggestion, report, candidateId, 
     <div className="qualification-suggestion-heading"><span><Sparkles size={15} aria-hidden="true"/>{suggestion.state === 'accepted' ? 'Proposition acceptée' : 'Proposition de l’analyse'}</span><strong>{suggestion.points === null ? 'À compléter' : `${suggestion.points} points proposés`}</strong></div>
     <p className="qualification-suggestion-answer">{answerLabel}</p><p>{suggestion.rationale}</p>
     <p className="field-help">Proposée le {reportDate(suggestion.proposedAt)}. Les points deviennent confirmés après votre choix et les justifications requises.</p>
-    <div className="qualification-suggestion-facts">{facts.map(fact => <FindingReview key={fact.id} fact={fact} report={report} candidateId={candidateId} revision={findingRevision} readOnly={readOnly}/>)}</div>
+    <div className="qualification-suggestion-facts">{compact?facts.map(fact=><button type="button" className="button text-button" key={fact.id} onClick={()=>window.dispatchEvent(new CustomEvent('brine:view-proof',{detail:fact.id}))}>Voir la preuve · {shortText(fact.text,90)}</button>):facts.map(fact => <FindingReview key={fact.id} fact={fact} report={report} candidateId={candidateId} revision={findingRevision} readOnly={readOnly}/>)}</div>
     {!readOnly && suggestion.state === 'proposed' && <div className="qualification-suggestion-decision">
       {!confirmed && <p className="field-help">Confirmez les constats ci-dessus avant d’accepter les points proposés.</p>}
       {dirty && <p className="field-help">Enregistrez vos modifications du critère avant d’accepter ou de rejeter la proposition.</p>}
@@ -93,5 +93,5 @@ export function QualificationSuggestionPanel({ suggestion, report, candidateId, 
     </div>}
     <Feedback state={state}/>
   </section>;
-  return suggestion.state === 'accepted' ? <details className="qualification-accepted-proposal"><summary><ShieldCheck size={16} aria-hidden="true"/>Proposition acceptée · revoir les preuves</summary>{content}</details> : content;
+  return compact&&suggestion.state!=='accepted'?<details className="qualification-accepted-proposal"><summary>Proposition de l’analyse · {answerLabel} · {suggestion.points??'—'} points</summary>{content}</details>:suggestion.state === 'accepted' ? <details className="qualification-accepted-proposal"><summary><ShieldCheck size={16} aria-hidden="true"/>Proposition acceptée · revoir les preuves</summary>{content}</details> : content;
 }

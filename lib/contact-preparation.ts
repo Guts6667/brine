@@ -256,6 +256,7 @@ export function evaluateContactReadiness(company: Company, campaign: Campaign, r
   const firstContact = !company.archived && ['À étudier', 'À contacter'].includes(company.stage) && !(company.contactEvents?.length);
   if (company.oppositionActive) missing.push('Une opposition à être contacté est active.');
   if (company.archived) missing.push('Cette entreprise est archivée.');
+  const closed=company.stage==='Perdu';if(closed)missing.push('Le suivi de cette entreprise est clôturé.');
   let stale = false, legacy = false;
   if (readiness) {
     if (!readiness.target) missing.push('Confirmer que l’entreprise correspond à la cible.');
@@ -276,7 +277,7 @@ export function evaluateContactReadiness(company: Company, campaign: Campaign, r
     stale = evaluation.targetNeedsRevalidation;
   }
   const ready = !missing.length;
-  return { ready, firstContact, decision: company.oppositionActive ? 'Ne plus contacter' : ready ? firstContact ? 'Prêt à contacter' : 'Suivre le contact' : stale ? 'À revalider' : 'À préparer', missing, legacy, stale };
+  return { ready, firstContact, decision: company.oppositionActive ? 'Ne plus contacter' : closed ? 'Contact clôturé' : ready ? firstContact ? 'Prêt à contacter' : 'Suivre le contact' : stale ? 'À revalider' : 'À préparer', missing, legacy, stale };
 }
 export function validProfessionalChannel(kind: 'email' | 'phone', value: string): boolean {
   if (kind === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && !/[<>\r\n]/.test(value) && value.length <= 320;

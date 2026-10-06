@@ -95,7 +95,7 @@ for (const kind of ['local', 'cloud'] as const) {
     try {
       let p = await f.repo.saveLearningProgress({ operation: 'answers', revision: 0, moduleId: 'email', answers: { emailText: 'Mon brouillon, à reprendre.' } });
       p = await f.repo.saveLearningProgress({ operation: 'campaign', revision: p.revision, campaignId: f.campaign.id });
-      const backup = await f.base.exportBackup(), costs = await f.financial(); assert.equal(backup.schemaVersion, 6); assert.ok(backupSchema.safeParse(backup).success);
+      const backup = await f.base.exportBackup(), costs = await f.financial(); assert.equal(backup.schemaVersion, 7); assert.ok(backupSchema.safeParse(backup).success);
       await f.base.restoreBackup(backup, true); p = await f.repo.getLearningProgress(); assert.equal(p.answers.email?.emailText, 'Mon brouillon, à reprendre.'); assert.ok(p.revision > backup.campaignData!.learningProgress!.revision);
       for (const schemaVersion of [1, 2, 3, 4, 5]) {
         const legacy: Record<string, unknown> = { ...backup, schemaVersion };

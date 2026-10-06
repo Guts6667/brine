@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync,readFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {createClient} from '@libsql/client';
+import {Store} from '../lib/db';
+import {CampaignRepository} from '../lib/campaign-repository';
+import {cloudMigrations} from '../lib/cloud-schema';
+import {aiStudySql,studyStats} from '../lib/ai-study-schema';
+import {createAiStudy,getAiStudy,controlAiStudy,claimAiStudy,finishAiStudy,saveManualStudyTrial,selectStudyEvidence} from '../lib/ai-study-storage';
+import {executeStudyTrial,simulatedStudyProvider,classifyStudyAnswer} from '../lib/ai-study-engine';
+import {suggestedStudyTexts} from '../lib/ai-study-questions';
+import {saveProviderState,runBudgetedResearch,getBudgetOverview,ResearchBudgetError} from '../lib/research-budget';
+import {backupSchema} from '../lib/domain';
+import {AsyncCloudStore} from '../lib/cloud-db';
+async function fixture(kind:'local'|'cloud'='local'){
+ const directory=mkdtempSync(join(tmpdir(),'brine-study-')),path=join(directory,'brine.sqlite'),base=kind==='local'?new Store(path):new AsyncCloudStore(createClient({url:'file:'+path}));await base.listCompanies();const repo=new CampaignRepository(createClient({url:'file:'+path}));await repo.bootstrap();const campaign=await repo.getCampaign('initial'),company=await repo.createCompany(campaign.id,{name:'Atelier Papier',website:'https://atelier-papier.example',city:'Montpellier',business:'Rénovation'});
+ const input={id:randomUUID(),campaignId:campaign.id,candidateId:null,companyId:company.id,questions:suggestedStudyTexts('rénovation','Montpellier').map((text,i)=>({id:randomUUID(),text,keyword:'rénovation',intent:i?'project':'local',fit:'offer',rationale:'Prestation annoncée et vérifiée pour ce relevé.',sourceUrl:company.website})),repeats:3,channel:'api',model:'google/gemini-3.1-flash-lite',interface:'OpenRouter API · Exa',reviewed:true};
+ return {base,repo,campaign,company,input,dispose(){repo.close();base.close();rmSync(directory,{recursive:true,force:true});}};
+}
+test('study migrations have identical SQL and generated questions distinguish adjacent professions',()=>{assert.equal(readFileSync('migrations/007_ai_studies.sql','utf8'),aiStudySql);assert.equal(cloudMigrations.find(m=>m.version===8)?.sql,aiStudySql);assert.match(suggestedStudyTexts('architectes d’intérieur','Montpellier')[0],/^Quels architectes/);assert.match(suggestedStudyTexts('rénovation intérieure','Montpellier')[1],/rénover mon appartement/);});
+for(const kind of ['local','cloud'] as const)test(`${kind}: independent trials, raw answers, neutral evidence and v7 backup preserve qualification and history`,async()=>{
+ const f=await fixture(kind);try{const before=await f.base.exportBackup(),s=await createAiStudy(f.repo,f.input);assert.equal((await createAiStudy(f.repo,f.input)).id,s.id);await assert.rejects(createAiStudy(f.repo,{...f.input,interface:'Autre interface'}),/autre étude/);
+ await f.repo.transaction(async tx=>{s.status='queued';await tx.execute({sql:'UPDATE research_ai_studies SET payload=? WHERE id=?',args:[JSON.stringify(s),s.id]});});const epoch=await f.repo.epoch(),run=await claimAiStudy(f.repo,s.id,'test-owner',epoch);assert.ok(run);let requests=0;for(const t of run.trials)await executeStudyTrial(f.repo,run,epoch,t.id,async(...args)=>{requests++;return simulatedStudyProvider(...args);});await finishAiStudy(f.repo,run,epoch);
+ const completed=await getAiStudy(f.repo,s.id);assert.equal(requests,6);assert.equal(new Set(completed.trials.map(t=>t.id)).size,6);assert.equal(completed.status,'completed');const stats=studyStats(completed,completed.questions[1].id);assert.equal(stats.valid,2);assert.equal(stats.errors,1);assert.deepEqual(stats.recommendation,{yes:1,classified:2});
+ const first=completed.trials[0];assert.ok(first.rawResponse);const review={answer:first.answer,proofUrl:'',recordedAt:first.recordedAt,mention:true,recommendation:false,citation:true,classified:true};await assert.rejects(saveManualStudyTrial(f.repo,s.id,completed.revision,first.id,{...review,answer:'Réponse remplacée'}),/immuables/);const revised=await saveManualStudyTrial(f.repo,s.id,completed.revision,first.id,review);assert.equal(revised.trials[0].answer,first.answer);assert.equal(revised.trials[0].reviews?.length,1);
+ await selectStudyEvidence(f.repo,s.id,revised.revision,revised.questions[0].id);const report=await f.repo.getCompanyReport(f.campaign.id,f.company.id);assert.ok(report?.facts.some(fact=>fact.section==='visibility'&&fact.text.includes('réponses classées')));const after=await f.base.exportBackup();assert.equal(after.schemaVersion,7);assert.ok(backupSchema.safeParse(after).success);assert.deepEqual(after.campaignData!.participations,before.campaignData!.participations);assert.deepEqual(after.activities,before.activities);assert.equal(after.campaignData?.aiStudies?.length,1);
+ await f.base.restoreBackup(after,true);const restored=await getAiStudy(f.repo,s.id);assert.equal(restored.trials[0].answer,first.answer);assert.equal(restored.evidence?.length,1);
+ }finally{f.dispose();}});
+test('manual application trials keep their channel, model and proof; edits preserve prior answers',async()=>{const f=await fixture();try{const s=await createAiStudy(f.repo,{...f.input,channel:'claude-app',model:'inconnu',interface:'Application Claude web'});const t=s.trials[0],fields={answer:'Réponse saisie dans l’application.',proofUrl:'https://claude.ai/share/exemple',recordedAt:new Date().toISOString(),mention:false,recommendation:false,citation:null,classified:true};await assert.rejects(saveManualStudyTrial(f.repo,s.id,s.revision,t.id,{...fields,proofUrl:''}),/lien de preuve/);const updated=await saveManualStudyTrial(f.repo,s.id,s.revision,t.id,fields);assert.equal(updated.channel,'claude-app');assert.equal(updated.trials[0].model,'inconnu');const revised=await saveManualStudyTrial(f.repo,s.id,updated.revision,t.id,{...fields,answer:'Correction humaine datée.'});assert.equal(revised.trials[0].reviews?.at(-1)?.answer,fields.answer);assert.equal(studyStats(revised,s.questions[0].id).citation.classified,0);}finally{f.dispose();}});
+test('a valid absent result is distinct from ambiguous identity and invalid output',async()=>{const f=await fixture();try{const s=await createAiStudy(f.repo,f.input),t=s.trials[0],source={id:'source-1',provider:'openrouter' as const,url:'https://homonyme.example',title:'Atelier Papier',excerpt:'Atelier Papier Paris',collectedAt:new Date().toISOString()};assert.equal(classifyStudyAnswer(s,t,{data:{answer:'Atelier Papier est recommandé.',recommendations:[{name:'Atelier Papier',city:'Paris',url:source.url}]},sources:[source],model:s.model}).status,'unclassified');const invalid=classifyStudyAnswer(s,t,{data:{invalid:true},rawText:'JSON tronqué mais conservé',sources:[],model:s.model});assert.equal(invalid.rawResponse,'JSON tronqué mais conservé');assert.equal(invalid.mention,null);}finally{f.dispose();}});
+test('resume replays settled operations and an uncertain operation never incurs a second charge; restore preserves spending',async()=>{const f=await fixture();try{await saveProviderState(f.repo,'openrouter',{checkedAt:new Date().toISOString(),valid:true,remaining:5});const s=await createAiStudy(f.repo,f.input);await f.repo.transaction(async tx=>{s.status='queued';await tx.execute({sql:'UPDATE research_ai_studies SET payload=? WHERE id=?',args:[JSON.stringify(s),s.id]});});const epoch=await f.repo.epoch(),run=(await claimAiStudy(f.repo,s.id,'owner',epoch))!,trial=run.trials[0];let calls=0;const provider=async()=>runBudgetedResearch(f.repo,{key:`study:${s.id}:trial:${trial.id}`,provider:'openrouter',maxUsd:.2},async()=>{calls++;return {value:await simulatedStudyProvider(f.repo,s,trial),actualUsd:.01};});await executeStudyTrial(f.repo,run,epoch,trial.id,provider);await executeStudyTrial(f.repo,run,epoch,trial.id,provider);assert.equal(calls,1);const backup=await f.base.exportBackup(),money=await getBudgetOverview(f.repo);await f.base.restoreBackup(backup,true);assert.equal((await getAiStudy(f.repo,s.id)).status,'paused');const restored=(await getAiStudy(f.repo,s.id)),next=restored.trials[1],key=`study:${s.id}:trial:${next.id}`;await assert.rejects(runBudgetedResearch(f.repo,{key,provider:'openrouter',maxUsd:.2},async()=>{throw new Error('Connection interrupted');}));await assert.rejects(runBudgetedResearch(f.repo,{key,provider:'openrouter',maxUsd:.2},async()=>{calls++;return {value:{},actualUsd:0};}),ResearchBudgetError);assert.equal(calls,1);assert.equal((await getBudgetOverview(f.repo)).spentUsd,money.spentUsd);assert.equal((await getBudgetOverview(f.repo)).reservedUsd,.2);}finally{f.dispose();}});
+
+test('concurrent workers claim a trial once; pause invalidates late writes and classification corrections invalidate chosen evidence',async()=>{const f=await fixture();try{const s=await createAiStudy(f.repo,f.input);await f.repo.transaction(async tx=>{s.status='queued';await tx.execute({sql:'UPDATE research_ai_studies SET payload=? WHERE id=?',args:[JSON.stringify(s),s.id]});});const epoch=await f.repo.epoch(),runs=await Promise.all([claimAiStudy(f.repo,s.id,'owner-a',epoch),claimAiStudy(f.repo,s.id,'owner-b',epoch)]),run=runs.find(Boolean)!;assert.equal(runs.filter(Boolean).length,1);let calls=0;await Promise.all([executeStudyTrial(f.repo,run,epoch,run.trials[0].id,async(...args)=>{calls++;return simulatedStudyProvider(...args);}),executeStudyTrial(f.repo,run,epoch,run.trials[0].id,async(...args)=>{calls++;return simulatedStudyProvider(...args);})]);assert.equal(calls,1);const current=await getAiStudy(f.repo,s.id);await controlAiStudy(f.repo,s.id,current.revision,'pause');await executeStudyTrial(f.repo,run,epoch,run.trials[1].id,async(...args)=>{calls++;return simulatedStudyProvider(...args);});assert.equal(calls,1);let chosen=await getAiStudy(f.repo,s.id);chosen=await selectStudyEvidence(f.repo,s.id,chosen.revision,chosen.questions[0].id);const trial=chosen.trials[0],fields={answer:trial.answer,proofUrl:'',recordedAt:trial.recordedAt,mention:true,recommendation:false,citation:true,classified:true};const edited=await saveManualStudyTrial(f.repo,s.id,chosen.revision,trial.id,fields);assert.equal(edited.evidence?.[0].fact.corrected,true);await assert.rejects(saveManualStudyTrial(f.repo,s.id,chosen.revision,trial.id,fields),/modifiée ailleurs/);assert.equal((await getAiStudy(f.repo,s.id)).trials[0].reviews?.length,1);const report=await f.repo.getCompanyReport(f.campaign.id,f.company.id);assert.equal(report?.facts.find(x=>x.id===chosen.evidence![0].fact.id)?.corrected,true);}finally{f.dispose();}});
+
+test('pausing a campaign stops its AI studies and reopening it never restarts calls automatically', async () => {
+  const f = await fixture();
+  try {
+    const study = await createAiStudy(f.repo, f.input);
+    await f.repo.transaction(async tx => {
+      await tx.execute({sql:'UPDATE research_ai_studies SET payload=? WHERE id=?',args:[JSON.stringify({...study,status:'queued'}),study.id]});
+    });
+    const epoch = await f.repo.epoch(), run = await claimAiStudy(f.repo, study.id, 'owner', epoch);
+    assert.ok(run);
+    await f.repo.setCampaignStatus(f.campaign.id, 'paused', f.campaign.revision);
+    const paused = await getAiStudy(f.repo, study.id);
+    assert.equal(paused.status, 'paused');
+    assert.equal(paused.owner, '');
+    let calls = 0;
+    await executeStudyTrial(f.repo, run, epoch, run.trials[0].id, async (...args) => { calls++; return simulatedStudyProvider(...args); });
+    assert.equal(calls, 0);
+    await assert.rejects(controlAiStudy(f.repo, study.id, paused.revision, 'launch'), /Réactivez la campagne/);
+    const campaign = await f.repo.getCampaign(f.campaign.id);
+    await f.repo.setCampaignStatus(campaign.id, 'active', campaign.revision);
+    assert.equal((await getAiStudy(f.repo, study.id)).status, 'paused');
+    assert.equal(calls, 0);
+  } finally { f.dispose(); }
+});

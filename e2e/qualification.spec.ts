@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { openCompanyInformation, openCompanyContacts, openQualificationCriterion } from './qualification-helpers';
 import type { Backup, Company } from '../lib/types';
 
 async function backup(request: APIRequestContext): Promise<Backup> {
@@ -31,6 +32,7 @@ function parisDate(offset = 0): string {
 }
 
 async function choose(page: Page, criterion: string, label: string) {
+  await openQualificationCriterion(page, criterion);
   await page.getByTestId(`qualification-question-${criterion}`).getByRole('radio', { name: label, exact: true }).check();
 }
 
@@ -43,13 +45,14 @@ async function saveQualification(page: Page, request: APIRequestContext, id: str
 }
 
 async function saveContact(page: Page, request: APIRequestContext, id: string, email: string) {
+  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
   await page.getByLabel('Email professionnel', { exact: true }).fill(email);
   await page.getByRole('button', { name: 'Enregistrer la fiche', exact: true }).click();
   await expect.poll(async () => (await savedCompany(request, id)).contact.email).toBe(email);
 }
 
 async function fillObservation(page: Page, key: string, answer: string, notes?: string, source?: string) {
-  const block=page.locator('details').filter({has:page.getByTestId('observation-form')}).last();if(await block.getAttribute('open')===null)await block.locator(':scope > summary').click();const row = page.getByTestId(`observation-${key}`);
+  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('observations');await page.getByRole('combobox',{name:'Contrôle à examiner · 9',exact:true}).selectOption(key);const row = page.getByTestId(`observation-${key}`);
   await row.getByRole('combobox').first().selectOption(answer);
   if (notes || source) {
     await row.locator('summary').click();
@@ -60,6 +63,7 @@ async function fillObservation(page: Page, key: string, answer: string, notes?: 
 }
 
 async function fillRecognizedExchange(page: Page) {
+  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('exchange');
   const section = page.locator('details.after-exchange-block');
   if (!(await section.evaluate(element => (element as HTMLDetailsElement).open))) await section.locator('summary').first().click();
   const form = page.getByTestId('after-exchange-form');
@@ -99,7 +103,9 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await expect(observationForm.getByRole('status')).toContainText('Observations enregistrées.');
   await expect.poll(async () => (await savedCompany(request, id)).qualification!.observations.items.mobile.notes).toBe(mobileNote);
   await expect(summary).toContainText('0/100');
+  await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('qualification');
   for (const criterion of ['fit', 'problem', 'trigger', 'references', 'access']) {
+    await page.getByRole('combobox',{name:'Critère à examiner · 5',exact:true}).selectOption(criterion);
     await expect(page.getByTestId(`qualification-question-${criterion}`).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();
   }
 
@@ -139,6 +145,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   expect(saved.qualification!.answers.problem.proofUrl).toBe(mobileSource);
 
   await page.reload();
+  await summary.locator(':scope > details > summary').click();
   await summary.locator('summary').filter({ hasText: 'Pourquoi ce score ?' }).click();
   const problemDetails = summary.locator('.qual-criterion-detail').filter({ hasText: 'Ai-je identifié un problème concret que je peux améliorer ?' });
   await expect(problemDetails).toContainText('30/30 points');
@@ -158,6 +165,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await page.goto(`/prospects/${id}`);
   await expect(summary).toContainText('80/100');
   await expect(summary).toContainText('Adéquation à revérifier');
+  await summary.locator(':scope > details > summary').click();
   await expect(summary.getByText('À vérifier', { exact: true }).first()).toBeVisible();
   saved = await savedCompany(request, id);
   expect(saved.qualification!.targetSnapshot).toEqual(originalTarget);
@@ -165,6 +173,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await page.goto('/prospects?filter=ready');
   await expect(page.getByRole('link', { name, exact: true })).toHaveCount(0);
   await page.goto(`/prospects/${id}`);
+  await openQualificationCriterion(page, 'fit');
   await page.getByRole('checkbox', { name: 'Je confirme cette évaluation par rapport à la cible actuelle.', exact: true }).check();
   await saveQualification(page, request, id);
   await expect(summary).toContainText('Prêt à contacter');
@@ -191,17 +200,18 @@ test('brouillon positif incomplet conservé sans score définitif et sans zéro 
   await choose(page, 'references', 'Aucune trouvée après vérification');
   await saveQualification(page, request, id);
   await expect(summary).toContainText('20/100');
-  await expect(summary).toContainText('3/5 critères validés');
+  await expect(summary).toContainText('3/5 critères renseignés');
   await expect(summary).toContainText('Qualification en cours');
   await expect(summary).not.toContainText('Priorité haute');
   await page.reload();
+  await openQualificationCriterion(page, 'problem');
   await expect(page.getByTestId('qualification-question-problem').getByRole('radio', { name: 'Un problème concret vérifié', exact: true })).toBeChecked();
   await expect(page.getByLabel('Le problème concret observé', { exact: true })).toHaveValue('');
   await page.getByLabel('Le problème concret observé', { exact: true }).fill('Le détail de la prestation ne précise pas la zone d’intervention.');
   await page.getByLabel('Date d’observation du problème', { exact: true }).fill(parisDate());
   await saveQualification(page, request, id);
   await expect(summary).toContainText('35/100');
-  await expect(summary).toContainText('4/5 critères validés');
+  await expect(summary).toContainText('4/5 critères renseignés');
   await expect(summary).toContainText('Qualification en cours');
   expect((await savedCompany(request, id)).qualification!.answers.access.answer).toBe('unknown');
 });
@@ -209,7 +219,7 @@ test('brouillon positif incomplet conservé sans score définitif et sans zéro 
 test('après échange : budget inconnu permis, passage manuel et opposition bloquante', async ({ page, request }) => {
   const id = await createCompany(page, 'Brine — opportunité après échange');
   const section = page.locator('details.after-exchange-block');
-  await expect(section).not.toHaveAttribute('open', '');
+  await expect(section).toHaveAttribute('open', '');
   await fillRecognizedExchange(page);
   const form = page.getByTestId('after-exchange-form');
   await expect(form.getByLabel('Budget envisageable', { exact: true })).toHaveValue('not_discussed');
@@ -236,11 +246,15 @@ test('après échange : budget inconnu permis, passage manuel et opposition bloq
   await fillRecognizedExchange(page);
   await page.getByTestId('after-exchange-form').getByRole('button', { name: 'Enregistrer après l’échange', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Passer à Opportunité qualifiée', exact: true })).toBeVisible();
+  await openCompanyInformation(page);
   await page.locator('summary').filter({ hasText: 'Archivage et opposition' }).click();
   await page.getByRole('button', { name: 'Marquer Ne plus contacter', exact: true }).click();
   await expect(page.getByTestId('qualification-summary')).toContainText('Ne plus contacter');
+  await page.getByRole('button', { name: 'Examiner et qualifier', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Espace de travail', exact: true }).selectOption('exchange');
   await expect(page.getByTestId('after-exchange-form')).toContainText('Qualification bloquée');
   await expect(page.getByRole('button', { name: 'Passer à Opportunité qualifiée', exact: true })).toHaveCount(0);
+  await openCompanyContacts(page);
   await page.locator('summary').filter({ hasText: 'Informations et étape de l’entreprise' }).click();
   await page.getByLabel('Étape commerciale', { exact: true }).selectOption('Opportunité qualifiée');
   await page.getByRole('button', { name: 'Enregistrer la fiche', exact: true }).click();

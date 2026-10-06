@@ -9,4 +9,7 @@ const steps=globalThis[Symbol.for('@workflow/core//registeredSteps')];
 for(const name of ['claim','populate','panel','html','mobile','report','finish','dispatchNext']){
   assert.ok(steps?.has(`step//./workflows/discovery//${name}`),`Missing cold-start workflow step: ${name}`);
 }
-console.log('All eight discovery steps are registered in a cold workflow handler.');
+for(const name of ['claimStudy','studyTrial','finishStudy']){
+  assert.ok(steps?.has(`step//./workflows/ai-study//${name}`),`Missing cold-start study step: ${name}`);
+}
+console.log('All eleven discovery and study steps are registered in a cold workflow handler.');

@@ -1,3 +1,5 @@
+import {appendStudyEvidence} from './ai-study-evidence';
+import {aiStudySchema} from './ai-study-schema';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Client, InValue, Transaction } from '@libsql/client';
 import { z } from 'zod';
@@ -157,6 +159,11 @@ export class CampaignRepository {
       if (status !== 'active') {
         const runs = await tx.execute({ sql: 'SELECT payload FROM discovery_runs WHERE campaignId = ?', args: [id] });
         for (const row of runs.rows) { const r = json<DiscoveryRun>(row.payload); if (['queued', 'running'].includes(r.status)) await this.putRun(tx, { ...r, status: 'paused', generation: r.generation + 1, owner: '', leaseUntil: '', updatedAt: timestamp() }); }
+        const studies = await tx.execute({sql:'SELECT payload FROM research_ai_studies WHERE campaignId = ?',args:[id]});
+        for (const row of studies.rows) {
+          const study = aiStudySchema.parse(json(row.payload));
+          if (['queued', 'running'].includes(study.status)) await tx.execute({sql:'UPDATE research_ai_studies SET payload = ? WHERE id = ?',args:[JSON.stringify({...study,status:'paused',generation:study.generation+1,revision:study.revision+1,owner:'',leaseUntil:'',updatedAt:timestamp()}),study.id]});
+        }
       }
     });
   }
@@ -358,7 +365,7 @@ export class CampaignRepository {
     });return this.getQualificationContext(id);
   }
   private async candidateReportTx(tx:Transaction,candidate:DiscoveryCandidate,campaign:Campaign):Promise<ProspectReport>{
-    const report=buildProspectReport(candidate,campaign);
+    const report=await appendStudyEvidence(tx,buildProspectReport(candidate,campaign),campaign.id,candidate.companyId,candidate.id);
     if(!candidate.companyId)return report;
     const shared=await this.shared(tx,candidate.companyId);
     const membership=(await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE campaignId=? AND companyId=?',args:[campaign.id,candidate.companyId]})).rows[0];
@@ -595,8 +602,9 @@ export class CampaignRepository {
     const company=this.project(await this.shared(tx,companyId),await this.participation(tx,campaignId,companyId),campaign);
     const tests=(await tx.execute({sql:'SELECT * FROM ai_tests WHERE companyId = ?',args:[companyId]})).rows as unknown as import('./types').AiTest[];
     const corrections=(await tx.execute({sql:'SELECT payload FROM research_fact_corrections WHERE companyId=? ORDER BY rowid',args:[companyId]})).rows.map(row=>json<ResearchCorrection>(row.payload));
-    const report=mergeCandidateReports(candidates.map(candidate=>candidate.research?.report||buildProspectReport(candidate,campaign)),campaign);
     const activities=(await tx.execute({sql:'SELECT * FROM activities WHERE companyId=? ORDER BY createdAt DESC,rowid DESC',args:[companyId]})).rows as unknown as Activity[];
+    let report=enrichCompanyReport(mergeCandidateReports(candidates.map(candidate=>candidate.research?.report||buildProspectReport(candidate,campaign)),campaign),company,campaign,tests,[],activities);
+    report=await appendStudyEvidence(tx,report,campaign.id,companyId,null);for(const candidate of candidates)report=await appendStudyEvidence(tx,report,campaign.id,null,candidate.id);
     return enrichCompanyReport(report,company,campaign,tests,corrections,activities);
   }
   getCompanyReport(campaignId:string,companyId:string){return this.readTransaction(tx=>this.companyReportTx(tx,campaignId,companyId));}

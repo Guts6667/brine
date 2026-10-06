@@ -64,7 +64,7 @@ test('runtime restoration retains the SQL client and reconstructs legacy campaig
       await Promise.all(Array.from({length:8},()=>repo.getCampaign(campaign.id)));
       base.restoreBackup(snapshot,true);await resetCampaignRepository();
       assert.equal(await getCampaignRepository(),repo,'Restoration must not close a client shared by active requests.');
-      assert.equal(base.exportBackup().schemaVersion,6);
+      assert.equal(base.exportBackup().schemaVersion,7);
       await assert.rejects(repo.getRun(run.id),/introuvable/);
       const manual=await repo.createCompany('initial',{name:'Après restauration',city:'Lyon',business:'Électricité',website:''});
       assert.equal(base.getCompany(manual.id)?.name,'Après restauration');
@@ -125,7 +125,7 @@ for(const kind of ['local','cloud'] as const) {
       stored.research!.report=buildProspectReport(stored,context.campaign);
       await f.repo.transaction(tx=>f.repo.putCandidate(tx,stored));
       const backup=await f.base.exportBackup();
-      assert.equal(backup.schemaVersion,6);assert.equal(backupSchema.safeParse(backup).success,true);
+      assert.equal(backup.schemaVersion,7);assert.equal(backupSchema.safeParse(backup).success,true);
       assert.equal(backup.campaignData?.candidates[0].research?.facts.length,12);
       assert.equal(backup.campaignData?.providerProfile?.name,'Alex');
       assert.equal(backup.campaignData?.candidates[0].html?.content?.[0].excerpt,stored.html.content?.[0].excerpt);

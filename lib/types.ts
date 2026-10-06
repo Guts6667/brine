@@ -32,5 +32,5 @@ export interface AiTest {
 }
 export type AiTestInput = Omit<AiTest, 'id' | 'companyId' | 'createdAt'>;
 export interface Settings { targetCity: string; targetBusiness: string; targetCompanyType?: string; targetOffer?: string; targetExclusions?: string }
-export interface Backup { schemaVersion: 1 | 2 | 3 | 4 | 5 | 6; campaignData?: import('./campaign-types').CampaignBackupData; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
+export interface Backup { schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7; campaignData?: import('./campaign-types').CampaignBackupData; exportedAt: string; companies: Company[]; activities: Activity[]; aiTests: AiTest[]; settings: Settings }
 export interface ActionState { ok?: boolean; error?: string; fields?: Record<string, string>; duplicates?: { id: string; name: string }[]; message?: string; briefId?:string }

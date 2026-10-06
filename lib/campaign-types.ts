@@ -42,5 +42,6 @@ export interface CampaignBackupData {
   assets?: import('./research-assets').AssetManifest[];
   comparisons?: import('./comparison').ComparisonSnapshot[];
   clientBriefs?: import('./client-brief').ClientBrief[];
+  aiStudies?: import('./ai-study-schema').AiStudy[];
   learningProgress?: import('./learning-types').LearningProgress;
 }

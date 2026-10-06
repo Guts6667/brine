@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openCompanyInformation } from './qualification-helpers';
 
 test('recherche accessible, activité configurable et formulaire utilisable sur mobile', async ({ page }) => {
   await page.goto('/prospects/recherche');
@@ -25,6 +26,7 @@ test('analyse rejette les sites privés et prépare des questions IA sans invent
   await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
   await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
   const id = new URL(page.url()).pathname.split('/').at(-1)!;
+  await openCompanyInformation(page);
   const audit = page.getByRole('region', { name: 'Vérifier le site et préparer l’approche' });
   await audit.getByRole('button', { name: 'Analyser le site', exact: true }).click();
   await expect(audit.getByRole('alert')).toContainText(/locales|privées|réservées/);

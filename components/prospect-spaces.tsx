@@ -1,0 +1,8 @@
+'use client';
+import {useEffect,useState,type ReactNode} from 'react';
+import {useSessionChoice} from './use-session-choice';
+export function ProspectSpaces({summary,qualification,contact,information,storageKey,initial='qualification'}:{summary?:ReactNode;qualification:ReactNode;contact:ReactNode;information:ReactNode;storageKey:string;initial?:'qualification'|'contact'|'information'}){
+ const [space,setSpace]=useSessionChoice(storageKey,['qualification','contact','information'] as const,initial);
+ useEffect(()=>{const reveal=(event?:Event)=>{const value=event instanceof CustomEvent?String(event.detail):location.hash;if(/qualification|criterion|observation|answers\.|items\.|exchange|contact-heading/.test(value))setSpace('qualification');else if(/profil|contact|preparation|brief/.test(value))setSpace('contact');else if(/notes|company|tests/.test(value))setSpace('information');};reveal();window.addEventListener('hashchange',reveal);window.addEventListener('brine:qualification-focus',reveal);return()=>{window.removeEventListener('hashchange',reveal);window.removeEventListener('brine:qualification-focus',reveal);};},[]);
+ return <>{summary}<nav className="prospect-spaces" aria-label="Travail sur ce prospect"><button type="button" aria-pressed={space==='qualification'} onClick={()=>setSpace('qualification')}>Examiner et qualifier</button><button type="button" aria-pressed={space==='contact'} onClick={()=>setSpace('contact')}>Contacter et suivre</button><button type="button" aria-pressed={space==='information'} onClick={()=>setSpace('information')}>Fiche et historique</button></nav><div hidden={space!=='qualification'}>{qualification}</div><div hidden={space!=='contact'}>{contact}</div><div hidden={space!=='information'}>{information}</div></>;
+}

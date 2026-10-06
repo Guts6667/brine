@@ -1,5 +1,6 @@
 import { campaignSql, researchSql } from './campaign-schema';
 import { enrichmentSql } from './enrichment-schema';
+import {aiStudySql} from './ai-study-schema';
 import {learningSql} from './learning-schema';
 // SQL is embedded so serverless functions do not depend on a writable or bundled migrations directory.
 // Keep migration 1 identical to migrations/001_initial.sql; the adapter test verifies that parity.
@@ -98,4 +99,5 @@ ALTER TABLE settings ADD COLUMN targetExclusions TEXT NOT NULL DEFAULT '';
   { version: 5, filename: '005_research.sql', sql: researchSql },
   { version: 6, filename: '006_enrichment.sql', sql: enrichmentSql },
   { version: 7, filename: '007_learning.sql', sql: learningSql },
+  { version: 8, filename: '008_ai_studies.sql', sql: aiStudySql },
 ] as const;

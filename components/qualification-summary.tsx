@@ -4,7 +4,7 @@ import { evaluateQualification, emptyQualification, OBSERVATION_OPTIONS } from '
 import type { Company, Settings } from '@/lib/types';
 import type { CriterionEvaluation, QualificationData, QualificationEvaluation, ManualObservationKey } from '@/lib/qualification-types';
 
-type Props = { company: Company & { qualification?: QualificationData }; settings: Settings; today: string; contactDecision?:string };
+type Props = { company: Company & { qualification?: QualificationData }; settings: Settings; today: string; contactDecision?:string; compact?:boolean };
 const criterionNames = { fit: 'Adéquation à la cible', problem: 'Problème concret', trigger: 'Déclencheur pertinent', references: 'Réalisations à valoriser', access: 'Bon interlocuteur' };
 
 function SourceLink({ url, label = 'Consulter la source' }: { url: string; label?: string }) {
@@ -83,11 +83,30 @@ function CriterionEvidence({ criterion, qualification, company }: { criterion: C
   </div>;
 }
 
-export function QualificationSummary({ company, settings, today, contactDecision, criteriaHref = '' }: Props & { criteriaHref?: string }) {
+function QualificationScoreDetails({evaluation,qualification,company}:{evaluation:QualificationEvaluation;qualification:QualificationData;company:Props["company"]}) {
+  return <details className="qual-score-details">
+      <summary>Pourquoi ce score ?<ChevronDown size={15} aria-hidden="true"/></summary>
+      <div className="qual-score-details-body">
+        {!!evaluation.blockers.length && <div className="qual-summary-notice"><strong>À vérifier avant le contact</strong><ul>{evaluation.blockers.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
+        <p className="field-help">{evaluation.complete ? 'Les cinq critères sont complets. Le total additionne leurs points.' : 'Seuls les critères complets apportent des points confirmés. Le total reste en brouillon, sans priorité définitive.'}</p>
+        {evaluation.criteria.map((criterion, index) => <section className="qual-criterion-detail" key={criterion.key}>
+          <div className="qual-detail-heading"><h3><span className="qual-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span>{criterion.label}</h3><strong>{criterion.complete ? `${criterion.points}/${criterion.maxPoints} points` : criterion.answerLabel === 'À vérifier' ? 'À vérifier' : 'À compléter'}</strong></div>
+          <p className="qual-answer-label">{criterion.answerLabel}</p>
+          <CriterionEvidence criterion={criterion} qualification={qualification} company={company}/>
+          {!!criterion.missing.length && <ul className="qual-missing-list">{criterion.missing.map(item => <li key={item}>{item}</li>)}</ul>}
+        </section>)}
+        {!!evaluation.missing.length && <div className="qual-summary-notice"><strong>Informations restant à vérifier</strong><ul>{evaluation.missing.map(item => <li key={item}>{item}</li>)}</ul></div>}
+        <p className="field-help">Barème Brine V1 : une convention de priorité interne, pas une probabilité d’achat. Le score ne prouve ni le budget, ni un besoin reconnu, ni une perte de clients. Les relevés IA restent séparés.</p>
+      </div>
+    </details>;
+}
+
+export function QualificationSummary({ company, settings, today, contactDecision, compact = false, criteriaHref = '' }: Props & { criteriaHref?: string }) {
   const qualification = company.qualification ?? emptyQualification();
   const evaluation = evaluateQualification(company, settings, today);
   const usesPreparation = Boolean(company.readiness && contactDecision);
   const decision = usesPreparation ? contactDecision! : evaluation.decision;
+  if(compact)return <div className="qualification-compact-summary" aria-label="Résumé de la qualification" data-testid="qualification-summary"><strong>{evaluation.score??evaluation.confirmedPoints}/100 {evaluation.score===null?'points confirmés':'points'} · {evaluation.completedCount}/5 critères renseignés</strong><details><summary>{evaluation.priority||'Priorité à préciser'} · Décision et limites</summary><p>{company.oppositionActive?'Ne plus contacter':company.stage==='Perdu'?'Contact clôturé':decision}</p><p>{evaluation.complete?'Qualification complète':'Qualification en cours'} · {evaluation.nextInformation}</p><p>Repère interne de priorité ; aucune probabilité d’achat. Neuf contrôles distincts, sans points supplémentaires. Une inconnue reste à vérifier.</p>{evaluation.warnings.map((warning,i)=><p key={i}>{warning}</p>)}<QualificationScoreDetails evaluation={evaluation} qualification={qualification} company={company}/></details></div>;
   return <section className="qual-overview panel" aria-label="Résumé de la qualification" data-testid="qualification-summary">
     <div className="qual-overview-top">
       <div className="qual-score"><span className="eyebrow">Score de qualification</span><QualificationScore evaluation={evaluation}/><div className="qual-completion" role="progressbar" aria-label="Critères validés" aria-valuenow={evaluation.completedCount} aria-valuemin={0} aria-valuemax={5}>{evaluation.criteria.map(criterion => <span key={criterion.key} className={criterion.complete ? 'complete' : ''}/>)}</div></div>
@@ -103,20 +122,6 @@ export function QualificationSummary({ company, settings, today, contactDecision
     <nav className="qual-criteria-overview" aria-label="Les cinq critères de qualification">{evaluation.criteria.map((criterion, index) => <a key={criterion.key} href={criteriaHref + '#qualification-criterion-' + criterion.key}><span className="qual-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span><span>{criterionNames[criterion.key]}<small>{criterion.complete ? 'Validé' : 'À vérifier ou compléter'}</small></span><strong>{criterion.complete ? criterion.points : '—'}<small>/{criterion.maxPoints}</small></strong></a>)}</nav>
     {!!evaluation.warnings.length && <div className="qual-summary-notice">{evaluation.warnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
     {!!company.qualificationEnrichment?.revalidate?.length && <div className="qual-summary-notice"><strong>Nouvelle analyse disponible.</strong> Vos réponses sont conservées. Revérifiez les critères signalés dans la fiche.</div>}
-    <details className="qual-score-details">
-      <summary>Pourquoi ce score ?<ChevronDown size={15} aria-hidden="true"/></summary>
-      <div className="qual-score-details-body">
-        {!!evaluation.blockers.length && <div className="qual-summary-notice"><strong>À vérifier avant le contact</strong><ul>{evaluation.blockers.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
-        <p className="field-help">{evaluation.complete ? 'Les cinq critères sont complets. Le total additionne leurs points.' : 'Seuls les critères complets apportent des points confirmés. Le total reste en brouillon, sans priorité définitive.'}</p>
-        {evaluation.criteria.map((criterion, index) => <section className="qual-criterion-detail" key={criterion.key}>
-          <div className="qual-detail-heading"><h3><span className="qual-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span>{criterion.label}</h3><strong>{criterion.complete ? `${criterion.points}/${criterion.maxPoints} points` : criterion.answerLabel === 'À vérifier' ? 'À vérifier' : 'À compléter'}</strong></div>
-          <p className="qual-answer-label">{criterion.answerLabel}</p>
-          <CriterionEvidence criterion={criterion} qualification={qualification} company={company}/>
-          {!!criterion.missing.length && <ul className="qual-missing-list">{criterion.missing.map(item => <li key={item}>{item}</li>)}</ul>}
-        </section>)}
-        {!!evaluation.missing.length && <div className="qual-summary-notice"><strong>Informations restant à vérifier</strong><ul>{evaluation.missing.map(item => <li key={item}>{item}</li>)}</ul></div>}
-        <p className="field-help">Barème Brine V1 : une convention de priorité interne, pas une probabilité d’achat. Le score ne prouve ni le budget, ni un besoin reconnu, ni une perte de clients. Les relevés IA restent séparés.</p>
-      </div>
-    </details>
+    <QualificationScoreDetails evaluation={evaluation} qualification={qualification} company={company}/>
   </section>;
 }

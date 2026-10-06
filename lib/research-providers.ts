@@ -161,7 +161,7 @@ export function maximumOpenRouterCost(web: boolean, maximumOutput = 3000) {
   // both, rather than assume hidden tool prompt overhead is bounded by excerpts.
   return (web ? 2 : 1) * (MAX_CONTEXT_TOKENS * inputPrice / 1_000_000 + maximumOutput * outputPrice / 1_000_000) + (web ? exaPrice : 0);
 }
-interface ModelAnswer { data: unknown; sources: ResearchSource[]; model: string }
+interface ModelAnswer { rawText?:string; data: unknown; sources: ResearchSource[]; model: string }
 export async function openRouterJson(repo: BudgetRepository, prompt: string, operationKey: string, web = false, maximumOutput = 3000, fetcher: typeof fetch = fetch,schema?:JsonObject): Promise<ModelAnswer> {
   const replay = await readCompletedOperation<ModelAnswer>(repo, operationKey); if (replay) return replay;
   const request = buildOpenRouterRequest(prompt, web, maximumOutput,schema);
@@ -178,7 +178,7 @@ export async function openRouterJson(repo: BudgetRepository, prompt: string, ope
     }
     let data: unknown; try { data = JSON.parse(content.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')); } catch { data = { invalid: true }; }
     // Settle even an invalid model answer: its generation has already been charged.
-    return { value: { data, sources, model: string(body.model, 180) || RESEARCH_MODEL }, actualUsd };
+    return { value: { data, rawText:content, sources, model: string(body.model, 180) || RESEARCH_MODEL }, actualUsd };
   });
 }
 const businessesSchema = z.object({ businesses: z.array(z.object({ name: z.string().min(1).max(180), city: z.string().max(180), business: z.string().max(300), url: z.string().max(2000), sourceUrl: z.string().max(2000) }).strict()).max(20) }).strict();
