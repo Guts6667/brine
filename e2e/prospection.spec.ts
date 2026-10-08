@@ -50,6 +50,7 @@ async function closeDialog(page: Page) {
 }
 
 async function planAction(page: Page, text: string, date: string) {
+  await page.getByRole('tab', { name: 'Contacter', exact: true }).click();
   await page.getByRole('button', { name: 'Prévoir la suite', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel(/^Action(?:\s|$)/).fill(text);
@@ -74,10 +75,10 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   let saved = (await backup(request)).companies.find(company => company.id === id)!;
   expect(saved).toMatchObject({ city: '', business: '', targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', stage: 'À étudier' });
   await expect(page.getByTestId('qualification-summary')).toContainText('0/100');
-  await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('qualification');
+  await page.getByRole('tab',{name:'Qualifier',exact:true}).click();
   for (const question of questions) {await page.getByRole('combobox',{name:'Critère à vérifier · 5',exact:true}).selectOption(['fit','problem','trigger','references','access'][questions.indexOf(question)]);await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();}
 
-  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
+  await openCompanyContacts(page);
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
   await saveCompany(page);
   await expect.poll(async () => (await backup(request)).companies.find(company => company.id === id)!.contact.email).toBe('bonjour@atelier-du-lez.example');
@@ -111,9 +112,10 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await answer(page, 0, 'Exactement');
   await saveQualification(page);
   await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
-  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
+  await openCompanyContacts(page);
   await page.getByLabel('Email professionnel', { exact: true }).fill('');
   await saveCompany(page);
+  await page.getByRole('tab',{name:'Qualifier',exact:true}).click();
   await expect(page.getByTestId('qualification-summary')).toContainText('35/100');
   await expect(page.getByTestId('qualification-summary')).toContainText('4/5 critères renseignés');
   await page.getByTestId('qualification-summary').locator(':scope > details > summary').click();
@@ -122,9 +124,10 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   expect(saved.qualification!.answers.access.answer).toBe('generic');
   expect(saved.contact.email).toBe('');
 
-  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
+  await openCompanyContacts(page);
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
   await saveCompany(page);
+  await page.getByRole('tab',{name:'Qualifier',exact:true}).click();
   await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
   await planAction(page, 'Appeler pour présenter le constat', dateInParis(-1));
   await page.goto('/');
@@ -154,6 +157,7 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   const history = (await backup(request)).activities.filter(activity => activity.companyId === id);
   expect(history.some(activity => activity.kind === 'action_done')).toBeTruthy();
   expect(history.some(activity => activity.kind === 'action_rescheduled')).toBeTruthy();
+  await page.getByRole('tab', { name: 'Contacter', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Prévoir la suite', exact: true }).first()).toBeVisible();
 });
 
@@ -215,13 +219,15 @@ test('notes conservées à l’archivage, relevés IA manuels et opposition sans
   expect((await backup(request)).companies.find(company => company.id === id)!.stage).toBe('À étudier');
 
   await planAction(page, 'Prendre contact pour la rénovation', dateInParis());
+  await openCompanyInformation(page);
+  await page.getByText('Archivage et opposition', { exact: true }).click();
   await page.getByRole('button', { name: 'Marquer Ne plus contacter', exact: true }).click();
   await expect(page.getByText('Ne plus contacter', { exact: true }).first()).toBeVisible();
   const saved = (await backup(request)).companies.find(company => company.id === id)!;
   expect(saved.oppositionActive).toBe(true);
   expect(saved.nextAction).toBeNull();
-  await expect(page.getByRole('button', { name: 'Prévoir la suite', exact: true })).toHaveCount(0);
   await openCompanyContacts(page);
+  await expect(page.getByRole('button', { name: 'Prévoir la suite', exact: true })).toHaveCount(0);
   await page.getByText('Informations et étape du prospect', { exact: true }).click();
   await page.getByLabel('Étape commerciale', { exact: true }).selectOption('En échange');
   await saveCompany(page);

@@ -16,6 +16,7 @@ import type { DiscoveryCandidate } from '@/lib/campaign-types';
 import type { ActionState, Company, Settings } from '@/lib/types';
 import type { AfterExchangeData, CriterionKey, DetailedObservations, ManualObservationKey, QualificationAnswers, QualificationData, TargetSnapshot } from '@/lib/qualification-types';
 import { UI_LABELS } from '@/lib/labels';
+import {useProofViewer} from './proof-viewer-context';
 
 type QualifiedCompany = Company & { qualification?: QualificationData };
 type QualificationProps = { company: QualifiedCompany; settings: Settings; today: string };
@@ -41,7 +42,6 @@ function PayloadForm({ action, payload, children, submit, testId, candidateId }:
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (!state.fields) return;
-    window.dispatchEvent(new CustomEvent('brine:qualification-focus',{detail:Object.keys(state.fields)[0]}));
     const invalid = ref.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
     let parent: HTMLElement | null | undefined = invalid?.parentElement;
     while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
@@ -115,7 +115,6 @@ export function QualificationForm({ company, settings, today, suggestedFinding, 
   const stored = company.qualification ?? emptyQualification();
   const [answers, setAnswers] = useState<QualificationAnswers>(stored.answers);
   const [activeCriterion,setActiveCriterion]=useSessionChoice(`brine:criterion:${company.campaignId||''}:${company.id}`,criterionKeys,'fit');
-  useEffect(()=>{const reveal=(event?:Event)=>{const value=event instanceof CustomEvent?String(event.detail):location.hash;const key=criterionKeys.find(k=>value.includes('criterion-'+k)||value.includes('answers.'+k));if(key)setActiveCriterion(key);};reveal();window.addEventListener('hashchange',reveal);window.addEventListener('brine:qualification-focus',reveal);return()=>{window.removeEventListener('hashchange',reveal);window.removeEventListener('brine:qualification-focus',reveal);};},[]);
   const [confirmTarget, setConfirmTarget] = useState(false);
   const storedAnswersKey = JSON.stringify(stored.answers);
   const storedTargetKey = JSON.stringify(stored.targetSnapshot);
@@ -233,7 +232,7 @@ export function QualificationForm({ company, settings, today, suggestedFinding, 
 
 export function ObservationsForm({ company, today, compact=false, report }: { company: QualifiedCompany; settings?: Settings; today: string; compact?:boolean; report?:ProspectReport }) {
   const [activeObservation,setActiveObservation]=useSessionChoice(`brine:control:${company.campaignId||''}:${company.id}`,manualObservationKeys,'siteAge');
-  useEffect(()=>{const reveal=(event?:Event)=>{const value=event instanceof CustomEvent?String(event.detail):location.hash;const key=manualObservationKeys.find(k=>value.includes('observation-'+k)||value.includes('items.'+k));if(key)setActiveObservation(key);};reveal();window.addEventListener('hashchange',reveal);window.addEventListener('brine:qualification-focus',reveal);return()=>{window.removeEventListener('hashchange',reveal);window.removeEventListener('brine:qualification-focus',reveal);};},[]);
+  const openProof=useProofViewer();
   const storedObservations = (company.qualification ?? emptyQualification()).observations;
   const [observations, setObservations] = useState<DetailedObservations>(storedObservations);
   const storedObservationsKey = JSON.stringify(storedObservations);
@@ -253,7 +252,7 @@ export function ObservationsForm({ company, today, compact=false, report }: { co
         const proof = report?.facts.find(f=>!f.corrected && f.review?.state!=='rejected' && f.origin!=='manual_observation' && (key==='mobile'?f.visual?.device==='mobile'||f.sourceIds.some(id=>report.sources.some(s=>s.id===id&&s.provider==='pagespeed')):key==='contact'?f.section==='contact':key==='services'?f.section==='presentation':key==='siteSatisfactory'?f.section==='site'&&f.sentiment==='positive':key==='mainAction'?f.visual?.category==='interaction':key==='siteAge'?f.section==='site'&&/date|ancien|actualis/i.test(f.text):key==='googleReviews'?/avis|étoiles|note Google/i.test(f.text):key==='recentActivity'?f.section==='presentation'&&/20\d\d/.test(f.text):key==='inactivity'?/cessation|fermé définitivement/i.test(f.text):false));
         return <div hidden={compact&&key!==activeObservation} className="observation-row" id={'observation-' + key} key={key} data-testid={'observation-' + key}>
           <div className="observation-question"><span className="qual-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span><SelectField name={'items.' + key + '.answer'} label={OBSERVATION_LABELS[key]} value={item.answer} onChange={value => changeItem(key, { answer: value as typeof item.answer })} options={OBSERVATION_OPTIONS}/></div>
-          <p className="field-help">{OBSERVATION_HELP[key]}</p>{proof&&compact&&<button type="button" className="button secondary" onClick={()=>window.dispatchEvent(new CustomEvent('brine:view-proof',{detail:proof.id}))}>Voir le {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} et sa {UI_LABELS.evidence.proof.toLocaleLowerCase('fr')}</button>}
+          <p className="field-help">{OBSERVATION_HELP[key]}</p>{proof&&compact&&<button type="button" className="button secondary" onClick={()=>openProof(proof.id)}>Voir le {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} et sa {UI_LABELS.evidence.proof.toLocaleLowerCase('fr')}</button>}
           {key === 'googleReviews' && <div className="form-grid observation-extra"><TextField name="googleReviewCount" label="Nombre d’avis Google observé (facultatif)" type="number" min={0} step={1} value={observations.googleReviewCount} onChange={value => changeExtra('googleReviewCount', value === '' ? null : Number(value))}/><TextField name="googleRating" label="Note Google affichée sur 5 (facultative)" type="number" min={0} max={5} step={0.1} value={observations.googleRating} onChange={value => changeExtra('googleRating', value === '' ? null : Number(value))}/></div>}
           {key === 'siteAge' && <div className="form-grid observation-extra"><SelectField name="siteAgeBasis" label="Sur quoi repose ce constat d’ancienneté ?" value={observations.siteAgeBasis} onChange={value => changeExtra('siteAgeBasis', value as DetailedObservations['siteAgeBasis'])} options={[{ value: 'unknown', label: 'À préciser' }, { value: 'dated_evidence', label: 'Un élément daté' }, { value: 'visual_impression', label: 'Une impression visuelle' }]}/>{observations.siteAgeBasis === 'dated_evidence' && <TextField name="siteDate" label="Date connue du site ou de son contenu" type="date" max={today} value={observations.siteDate} onChange={value => changeExtra('siteDate', value)}/>}</div>}
           {key === 'recentActivity' && <div className="observation-extra"><TextField name="recentEventOn" label="Date de l’événement observé (si connue)" type="date" max={today} value={observations.recentEventOn} onChange={value => changeExtra('recentEventOn', value)} help="À distinguer de la date à laquelle vous faites ce relevé."/></div>}

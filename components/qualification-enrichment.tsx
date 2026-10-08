@@ -10,6 +10,7 @@ import type { QualificationSuggestion } from '@/lib/qualification-enrichment';
 import type { CriterionKey } from '@/lib/qualification-types';
 import type { ProspectReport, ResearchFact } from '@/lib/research-types';
 import { UI_LABELS } from '@/lib/labels';
+import {useProofViewer} from './proof-viewer-context';
 import type { ActionState } from '@/lib/types';
 
 const criterionNames: Record<CriterionKey, string> = { fit: 'Adéquation à la cible', problem: 'Problème concret', trigger: 'Déclencheur', references: 'Réalisations', access: 'Interlocuteur' };
@@ -70,6 +71,7 @@ export function QualificationHighlights({ report, suggestions }: { report: Prosp
 export function QualificationSuggestionPanel({ suggestion, report, candidateId, revision, findingRevision, currentAnswer, hasSavedResponse = false, dirty, onModify, readOnly = false, compact = false }: {
   suggestion: QualificationSuggestion; report: ProspectReport; candidateId: string; revision: number; findingRevision: number; currentAnswer: string; hasSavedResponse?: boolean; dirty: boolean; onModify: () => void; readOnly?: boolean; compact?:boolean;
 }) {
+  const openProof = useProofViewer();
   const [state, dispatch, pending] = useActionState<ActionState, FormData>(decideQualificationSuggestionAction, {});
   const [overwrite, setOverwrite] = useState(false);
   const facts = suggestion.evidenceIds.flatMap(id => { const fact = report.facts.find(item => item.id === id); return fact ? [fact] : []; });
@@ -85,7 +87,7 @@ export function QualificationSuggestionPanel({ suggestion, report, candidateId, 
     <div className="qualification-suggestion-heading"><span><Sparkles size={15} aria-hidden="true"/>{suggestion.state === 'accepted' ? 'Proposition acceptée' : 'Proposition de l’analyse'}</span><strong>{suggestion.points === null ? 'À compléter' : `${suggestion.points} points proposés`}</strong></div>
     <p className="qualification-suggestion-answer">{answerLabel}</p><p>{suggestion.rationale}</p>
     <p className="field-help">Proposée le {reportDate(suggestion.proposedAt)}. Les points deviennent confirmés après votre choix et les justifications requises.</p>
-    <div className="qualification-suggestion-facts">{compact?facts.map(fact=><button type="button" className="button text-button" key={fact.id} onClick={()=>window.dispatchEvent(new CustomEvent('brine:view-proof',{detail:fact.id}))}>Voir la {UI_LABELS.evidence.proof.toLocaleLowerCase('fr')} · {shortText(fact.text,90)}</button>):facts.map(fact => <FindingReview key={fact.id} fact={fact} report={report} candidateId={candidateId} revision={findingRevision} readOnly={readOnly}/>)}</div>
+    <div className="qualification-suggestion-facts">{compact?facts.map(fact=><button type="button" className="button text-button" key={fact.id} onClick={()=>openProof(fact.id)}>Voir la {UI_LABELS.evidence.proof.toLocaleLowerCase('fr')} · {shortText(fact.text,90)}</button>):facts.map(fact => <FindingReview key={fact.id} fact={fact} report={report} candidateId={candidateId} revision={findingRevision} readOnly={readOnly}/>)}</div>
     {!readOnly && suggestion.state === 'proposed' && <div className="qualification-suggestion-decision">
       {!confirmed && <p className="field-help">Confirmez les {UI_LABELS.evidence.findings.toLocaleLowerCase('fr')} ci-dessus avant d’accepter les points proposés.</p>}
       {dirty && <p className="field-help">Enregistrez vos modifications du critère avant d’accepter ou de rejeter la proposition.</p>}

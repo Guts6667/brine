@@ -254,7 +254,7 @@ test('V2 P1 — reconfirmer une retenue conserve ses preuves et le retrait garde
     expect(retained.drafts).toEqual(before.drafts);
     await page.goto(`/prospects/${company.id}?campagne=${campaignId}`);
     await expect(page.getByRole('heading', { name: company.name, exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Contacter', exact: true }).click();
+    await page.getByRole('tab', { name: 'Contacter', exact: true }).click();
     await page.getByText('Historique des plans et des messages', { exact: true }).click();
     const history = page.getByText('Historique des plans et des messages', { exact: true }).locator('..');
     await expect(history.locator('article').filter({ hasText: before.plan!.question }).first()).toBeVisible();
@@ -324,9 +324,7 @@ test('V2 P1 — contacts réellement effectués sans préparation et opposition 
     // baseline, since production restoration correctly preserves oppositions.
     if (companyId && (await backup(request)).companies.find(company => company.id === companyId)?.oppositionActive) {
       await page.goto(`/prospects/${companyId}?campagne=${cleanupCampaignId}`);
-      await page.getByRole('button', { name: 'Fiche et historique', exact: true }).click();
-      const information = page.locator('details').filter({ hasText: 'Constats, échanges et outils complémentaires' }).first();
-      if (await information.getAttribute('open') === null) await information.locator('summary').first().click();
+      await page.getByRole('tab', { name: 'Historique', exact: true }).click();
       await page.getByText('Archivage et opposition', { exact: true }).click();
       await page.getByRole('checkbox', { name: 'Je confirme la levée de l’opposition et la réactivation du contact.', exact: true }).check();
       await page.getByRole('button', { name: 'Réactiver explicitement le contact', exact: true }).click();

@@ -1,6 +1,7 @@
 import { test,expect } from '@playwright/test';
 import type { Backup } from '../lib/types';
 import { openFactSection, openContactChoices, confirmFact } from './report-helpers';
+import { openCompanyContacts } from './qualification-helpers';
 test('campagnes indépendantes, fiche commune, contacts préservés et revue mobile',async({page,request})=>{
   test.setTimeout(120000);const baseline:Backup=await(await request.get('/api/backup')).json();
   try{
@@ -15,7 +16,7 @@ test('campagnes indépendantes, fiche commune, contacts préservés et revue mob
     data=await(await request.get('/api/backup')).json();const companyId=data.companies.find(c=>c.name==='Atelier Démo — lot')!.id;
     await page.goto('/campagnes/'+campaignId);await page.getByText('Gestion et prospects déjà connus',{exact:true}).click();await page.getByRole('button',{name:'Dupliquer la configuration',exact:true}).click();await expect(page.getByRole('heading',{name:'Campagne navigateur — devis — copie',exact:true})).toBeVisible();const copyId=new URL(page.url()).pathname.split('/').at(-1)!;
     await page.getByText('Gestion et prospects déjà connus',{exact:true}).click();await page.getByLabel('Prospect déjà connu',{exact:true}).selectOption(companyId);await page.getByRole('button',{name:'Rattacher à cette campagne',exact:true}).click();
-    await page.goto('/prospects/'+companyId+'?campagne='+copyId);await expect(page.getByLabel('Email professionnel',{exact:true})).toHaveValue('contact@atelier-demo.test');
+    await page.goto('/prospects/'+companyId+'?campagne='+copyId);await openCompanyContacts(page);await expect(page.getByLabel('Email professionnel',{exact:true})).toHaveValue('contact@atelier-demo.test');
     await page.getByRole('button',{name:'Prévoir la suite',exact:true}).first().click();const dialog=page.getByRole('dialog');await dialog.getByLabel(/^Action(?:\s|$)/).fill('Appeler pour la deuxième offre');await dialog.getByRole('button',{name:'Enregistrer l’action',exact:true}).click();await expect(dialog.getByRole('status')).toContainText('Prochaine action enregistrée.');await dialog.getByRole('button',{name:'Fermer',exact:true}).click();
     data=await(await request.get('/api/backup')).json();expect(data.companies.filter(c=>c.id===companyId)).toHaveLength(1);expect(data.campaignData!.participations.find(p=>p.companyId===companyId&&p.campaignId===campaignId)!.nextAction).toBeNull();expect(data.campaignData!.participations.find(p=>p.companyId===companyId&&p.campaignId===copyId)!.nextAction!.text).toBe('Appeler pour la deuxième offre');
     const unknown=data.campaignData!.candidates.find(c=>c.runId===runId&&c.company.name==='Artisan — site à confirmer')!;await page.setViewportSize({width:390,height:844});await page.goto(runUrl+'?candidat='+unknown.id);await expect(page.getByText('Site non confirmé',{exact:true})).toBeVisible();await page.getByText('Origine de l’entreprise et site identifié',{exact:true}).click();await expect(page.getByLabel('Corriger ou renseigner le site officiel',{exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);await page.screenshot({path:'test-results/campaign-review-mobile.png',fullPage:true});

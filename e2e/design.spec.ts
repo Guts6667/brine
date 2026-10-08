@@ -55,6 +55,7 @@ test('la prochaine action reprend une action réellement prévue sans créer de 
     await dialog.getByRole('button', { name: 'Créer le prospect', exact: true }).click();
     await expect(page).toHaveURL(/\/prospects\//);
     const id = new URL(page.url()).pathname.split('/').at(-1)!;
+    await page.getByRole('tab', { name: 'Contacter', exact: true }).click();
     await page.getByRole('button', { name: 'Prévoir la suite', exact: true }).first().click();
     dialog = page.getByRole('dialog');
     await dialog.getByLabel(/^Action(?:\s|$)/).fill('Relire les notes de la conversation');

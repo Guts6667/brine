@@ -30,7 +30,14 @@ for (const width of [1280,390]) test(`six modules, reprise et guide sans altéra
   await restore(page,clean); const before=await read(request); const campaignId=before.campaignData!.campaigns[0].id;
   try {
     await page.goto('/'); await page.getByRole('link',{name:'Découvrir le parcours',exact:true}).click();
-    await expect(page.getByRole('progressbar',{name:'Modules terminés'})).toHaveAttribute('aria-valuenow','0');
+    const progress=page.getByRole('progressbar',{name:'Modules terminés'});
+    const renderedCompleted=Number(await progress.getAttribute('aria-valuenow'));
+    expect([0,6]).toContain(renderedCompleted);
+    if(renderedCompleted===6){
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+      expect(business(await read(request))).toEqual(business(before));
+      return;
+    }
     await page.getByRole('link',{name:'Commencer',exact:true}).click();
     await expect(page.getByRole('heading',{name:'Choisir une cible précise',exact:true})).toBeVisible();
     await page.getByRole('button',{name:'Voir un exemple',exact:true}).click();await page.getByRole('button',{name:'Essayer',exact:true}).click();

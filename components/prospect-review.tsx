@@ -126,7 +126,6 @@ export function ProspectReview({ candidateId, revision, report, insights, contac
       const dirty = document.querySelector<HTMLElement>('[data-qualification-dirty="true"]');
       if (dirty) {
         event.preventDefault(); setUnsavedError('Enregistrez d’abord vos modifications pour les conserver avec cette décision.');
-        window.dispatchEvent(new CustomEvent('brine:qualification-focus',{detail:dirty.classList.contains('observations-block')?'observations-heading':dirty.classList.contains('after-exchange-block')?'exchange':'answers.fit'}));
         requestAnimationFrame(()=>dirty.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus());
       } else setUnsavedError('');
     }}>
