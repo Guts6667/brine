@@ -14,6 +14,7 @@ import { emptyQualification,captureTarget } from '../lib/qualification';
 import { populateRun,processCandidate,processMobile,finishRun,type DiscoveryProviders } from '../lib/discovery-engine';
 import { discoverWebsites } from '../lib/site-discovery';
 import type { Company, CompanyDetails } from '../lib/types';
+import type { DiscoveryCandidate } from '../lib/campaign-types';
 
 async function fixture(kind:'local'|'cloud'){
   const dir=mkdtempSync(join(tmpdir(),'brine-campaigns-')),path=join(dir,'test.sqlite');
@@ -89,4 +90,26 @@ for(const kind of ['local','cloud'] as const){
 test('ADEME matches exact SIRET, deduplicates certifications and never accepts directory URLs',async()=>{
  let requests=0;const fetcher=(async()=>{requests++;return new Response(JSON.stringify({results:[{siret:company.siret,site_internet:'atelier.test'},{siret:company.siret,site_internet:'https://atelier.test/'},{siret:'00000000000000',site_internet:'wrong.test'},{siret:company.siret,site_internet:'https://facebook.com/atelier'}]}));}) as typeof fetch;
  const result=await discoverWebsites(company,fetcher);assert.equal(result.websites.length,1);assert.equal(result.websites[0].confidence,'exact');assert.equal(requests,1);
+});
+
+test('grouped page reads preserve the legacy per-campaign and per-company results',async()=>{
+ const f=await fixture('local');try{
+  await f.repo.bootstrap();
+  const campaign=await f.repo.saveCampaign(target),first=await f.repo.createCompany(campaign.id,{name:'Atelier groupé',website:'https://atelier-groupe.test',city:'Lyon',business:'Électricité'}),second=await f.repo.createCompany(campaign.id,{name:'Entreprise manuelle',website:'',city:'Lyon',business:'Électricité'});
+  const run=await f.repo.createRun(campaign.id,10,randomUUID()),candidate:DiscoveryCandidate={id:randomUUID(),runId:run.id,companyId:first.id,status:'review',websites:[],website:first.website,html:null,mobile:null,htmlError:'',mobileError:'',attempts:{},revision:1,dedupeKey:`company:${first.id}`,company:{name:first.name,siren:'',siret:'',city:first.city,business:first.business,activityCode:'',address:'',sourceUrl:first.website}};
+  await f.repo.transaction(tx=>f.repo.putCandidate(tx,candidate));
+
+  const campaignIds=['initial',campaign.id],legacyCompanies=Object.fromEntries(await Promise.all(campaignIds.map(async id=>[id,await f.repo.listCompanies(id)] as const))),groupedCompanies=await f.repo.listCompaniesByCampaign(campaignIds);
+  assert.deepEqual(groupedCompanies,legacyCompanies);
+
+  const legacyRuns=Object.fromEntries(await Promise.all(campaignIds.map(async id=>[id,await f.repo.listRuns(id)] as const))),groupedRuns=await f.repo.listRunsByCampaign(campaignIds);
+  assert.deepEqual(groupedRuns,legacyRuns);
+  const legacyReviewCount=(await Promise.all(legacyRuns[campaign.id].map(item=>f.repo.listCandidates(item.id)))).flat().filter(item=>['review','needs_site','verify'].includes(item.status)).length;
+  assert.equal((await f.repo.countReviewCandidatesByCampaign(campaignIds))[campaign.id],legacyReviewCount);
+  assert.equal((await f.repo.countReviewCandidatesByRun([run.id]))[run.id],legacyReviewCount);
+
+  const ids=[first.id,second.id],legacyReports=new Map(await Promise.all(ids.map(async id=>[id,await f.repo.getCompanyReport(campaign.id,id)] as const))),groupedReports=await f.repo.getCompanyReports(campaign.id,ids);
+  const stable=(report:Awaited<ReturnType<typeof f.repo.getCompanyReport>>)=>report?{...report,generatedAt:''}:report;
+  assert.deepEqual([...groupedReports].map(([id,report])=>[id,stable(report)]),[...legacyReports].map(([id,report])=>[id,stable(report)]));
+ }finally{f.close();}
 });

@@ -49,10 +49,10 @@ test('la prochaine action reprend une action réellement prévue sans créer de 
   const baseline = await read(request);
   try {
     await page.goto('/prospects');
-    await page.getByRole('button', { name: 'Ajouter une entreprise', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Ajouter un prospect', exact: true }).first().click();
     let dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Nom de l’entreprise', { exact: false }).fill('Atelier Papier · essai du design');
-    await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
+    await dialog.getByLabel('Nom du prospect', { exact: false }).fill('Atelier Papier · essai du design');
+    await dialog.getByRole('button', { name: 'Créer le prospect', exact: true }).click();
     await expect(page).toHaveURL(/\/prospects\//);
     const id = new URL(page.url()).pathname.split('/').at(-1)!;
     await page.getByRole('button', { name: 'Prévoir la suite', exact: true }).first().click();

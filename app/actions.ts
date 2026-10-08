@@ -3,6 +3,7 @@ import { getCampaignContext, getCampaignRepository, resetCampaignRepository } fr
 import { randomUUID } from 'node:crypto';
 import { companyInputSchema, parisToday } from '@/lib/domain';
 import { qualificationInputSchema, observationsSchema, afterExchangeInputSchema, targetSnapshotSchema, evaluateQualification, evaluateAfterExchange } from '@/lib/qualification';
+import { UI_LABELS } from '@/lib/labels';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -92,7 +93,7 @@ function parseJsonField(data:FormData,name:string):unknown {
   try {return JSON.parse(value);} catch {throw new Error('Le formulaire a changé. Rechargez la fiche avant de réessayer.');}
 }
 export async function saveObservationsAction(id:string,_:ActionState,data:FormData):Promise<ActionState> {
-  try { await authorize(); const input=observationsSchema.parse(parsePayload(data));if(str(data,'candidateId'))await(await getCampaignRepository()).saveCandidateQualification(str(data,'candidateId'),Number(str(data,'participationRevision')),input,'observations');else await (await context(data)).saveObservations(id,input); refresh(id); return {ok:true,message:'Observations enregistrées. Confirmez séparément les réponses aux cinq critères.'}; }
+  try { await authorize(); const input=observationsSchema.parse(parsePayload(data));if(str(data,'candidateId'))await(await getCampaignRepository()).saveCandidateQualification(str(data,'candidateId'),Number(str(data,'participationRevision')),input,'observations');else await (await context(data)).saveObservations(id,input); refresh(id); return {ok:true,message:`${UI_LABELS.evidence.findings} enregistrés. Confirmez séparément les réponses aux cinq critères.`}; }
   catch(error) { return failure(error); }
 }
 export async function saveAfterExchangeAction(id:string,_:ActionState,data:FormData):Promise<ActionState> {

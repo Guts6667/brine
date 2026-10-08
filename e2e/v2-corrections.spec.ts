@@ -78,7 +78,7 @@ function shiftedDate(date: string, days: number) {
 function normalizeNewlines(value: string) { return value.replace(/\r\n?/g, '\n'); }
 
 async function proposePlan(page: Page) {
-  await page.getByRole('button', { name: 'Proposer un plan pour cette preuve', exact: true }).click();
+  await page.getByRole('button', { name: 'Proposer un plan pour ce constat', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Nouvelle proposition enregistrée.' })).toBeVisible();
 }
 
@@ -92,7 +92,7 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     const companyA = await keep(page, request, runId, social, 'social-fact-8', '04 00 00 01 23');
     const companyB = await keep(page, request, runId, atelier, 'quote404', 'contact@atelier-demo.test');
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${companyA.id}`);
-    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('social-fact-8');
+    await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     await proposePlan(page);
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue('Le profil présente des exemples de réalisations.');
     const motive = 'J’ai consulté les exemples de réalisations publiés sur votre profil.', question = 'Comment présentez-vous vos réalisations aux personnes qui vous contactent ?';
@@ -110,13 +110,13 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     await expect(page.getByLabel('Aide proportionnée', { exact: true })).toHaveValue(help);
     await expect(page.getByLabel('Question principale', { exact: true })).toHaveValue(question);
     await expect(page.getByLabel('Suite possible', { exact: true })).toHaveValue(nextStep);
-    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('social-fact-8');
+    await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     const saved = participation(await backup(request), campaignId, companyA.id);
     expect(saved.plan!.evidenceIds).toEqual(['social-fact-8']);
     expect(saved.plan!.motive).toBe(motive);
     expect(saved.drafts || []).toHaveLength(0);
 
-    await page.getByRole('checkbox', { name: /Cette entreprise correspond à ma cible/ }).check();
+    await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
@@ -133,9 +133,9 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     // B has a sourced email; an unsaved text or subject must not be presented
     // as a recorded version that can be copied or opened in a mail client.
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${companyB.id}`);
-    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('quote404');
+    await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('quote404');
     await proposePlan(page);
-    await page.getByRole('checkbox', { name: /Cette entreprise correspond à ma cible/ }).check();
+    await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('email');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
@@ -216,9 +216,9 @@ test('V2 P1 — reconfirmer une retenue conserve ses preuves et le retrait garde
     const social = candidates.find(candidate => candidate.company.name === 'Atelier Social Démo')!;
     const company = await keep(page, request, runId, social, 'social-fact-8', '04 00 00 01 23');
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${company.id}`);
-    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('social-fact-8');
+    await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     await proposePlan(page);
-    await page.getByRole('checkbox', { name: /Cette entreprise correspond à ma cible/ }).check();
+    await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
@@ -229,7 +229,7 @@ test('V2 P1 — reconfirmer une retenue conserve ses preuves et le retrait garde
     await page.getByRole('button', { name: 'Modifier mes choix', exact: true }).click();
     await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
     await openFactSection(page, 'social-fact-8');
-    await expect(page.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Preuve sélectionnée', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Constat sélectionné', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await openContactChoices(page);
     await expect(page.locator('.review-contact-choices').getByText(/^Téléphone public : 04 00 00 01 23/)).toBeVisible();
     await expect(page.getByRole('checkbox', { name: /04 00 00 01 23/ })).toHaveCount(0);
@@ -254,7 +254,7 @@ test('V2 P1 — reconfirmer une retenue conserve ses preuves et le retrait garde
     expect(retained.drafts).toEqual(before.drafts);
     await page.goto(`/prospects/${company.id}?campagne=${campaignId}`);
     await expect(page.getByRole('heading', { name: company.name, exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Contacter et suivre', exact: true }).click();
+    await page.getByRole('button', { name: 'Contacter', exact: true }).click();
     await page.getByText('Historique des plans et des messages', { exact: true }).click();
     const history = page.getByText('Historique des plans et des messages', { exact: true }).locator('..');
     await expect(history.locator('article').filter({ hasText: before.plan!.question }).first()).toBeVisible();
@@ -291,12 +291,12 @@ test('V2 P1 — contacts réellement effectués sans préparation et opposition 
     expect(participation(data, campaignId, company.id).qualification.answers.fit.answer).toBe('unknown');
     expect(participation(data, campaignId, company.id).nextAction!.text).toBe('Rappel convenu pour la campagne A');
     await page.goto(`/campagnes/${campaignId}`);
-    await page.getByText('Gestion et entreprises déjà connues', { exact: true }).click();
+    await page.getByText('Gestion et prospects déjà connus', { exact: true }).click();
     await page.getByRole('button', { name: 'Dupliquer la configuration', exact: true }).click();
     await expect(page).not.toHaveURL(new RegExp(`/campagnes/${campaignId}$`));
     const secondCampaignId = new URL(page.url()).pathname.split('/').at(-1)!;
-    await page.getByText('Gestion et entreprises déjà connues', { exact: true }).click();
-    await page.getByLabel('Entreprise déjà connue', { exact: true }).selectOption(company.id);
+    await page.getByText('Gestion et prospects déjà connus', { exact: true }).click();
+    await page.getByLabel('Prospect déjà connu', { exact: true }).selectOption(company.id);
     await page.getByRole('button', { name: 'Rattacher à cette campagne', exact: true }).click();
     await expect.poll(async () => (await backup(request)).campaignData!.participations.some(item => item.companyId === company.id && item.campaignId === secondCampaignId)).toBe(true);
     await page.goto(`/campagnes/${secondCampaignId}?etape=suivre&prospect=${company.id}`);
@@ -325,7 +325,7 @@ test('V2 P1 — contacts réellement effectués sans préparation et opposition 
     if (companyId && (await backup(request)).companies.find(company => company.id === companyId)?.oppositionActive) {
       await page.goto(`/prospects/${companyId}?campagne=${cleanupCampaignId}`);
       await page.getByRole('button', { name: 'Fiche et historique', exact: true }).click();
-      const information = page.locator('details').filter({ hasText: 'Observations, échanges et outils complémentaires' }).first();
+      const information = page.locator('details').filter({ hasText: 'Constats, échanges et outils complémentaires' }).first();
       if (await information.getAttribute('open') === null) await information.locator('summary').first().click();
       await page.getByText('Archivage et opposition', { exact: true }).click();
       await page.getByRole('checkbox', { name: 'Je confirme la levée de l’opposition et la réactivation du contact.', exact: true }).check();
@@ -345,7 +345,7 @@ test('V2 P1 — deux réponses successives conservent le plan personnel et affic
     const social = candidates.find(candidate => candidate.company.name === 'Atelier Social Démo')!;
     const company = await keep(page, request, runId, social, 'social-fact-8', '04 00 00 01 23');
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${company.id}`);
-    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('social-fact-8');
+    await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     await proposePlan(page);
     const personal = {
       motive: 'J’ai consulté vos exemples de réalisations sur votre profil public.',
@@ -359,7 +359,7 @@ test('V2 P1 — deux réponses successives conservent le plan personnel et affic
     }
     await page.getByRole('button', { name: 'Enregistrer mes formulations', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Vos formulations sont enregistrées.' })).toBeVisible();
-    await page.getByRole('checkbox', { name: /Cette entreprise correspond à ma cible/ }).check();
+    await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();

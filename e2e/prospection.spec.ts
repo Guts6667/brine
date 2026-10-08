@@ -19,10 +19,10 @@ async function backup(request: APIRequestContext): Promise<Backup> {
 
 async function createCompany(page: Page, name: string): Promise<string> {
   await page.goto('/prospects');
-  await page.getByRole('button', { name: 'Ajouter une entreprise', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Ajouter un prospect', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Nom de l’entreprise', { exact: false }).fill(name);
-  await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
+  await dialog.getByLabel('Nom du prospect', { exact: false }).fill(name);
+  await dialog.getByRole('button', { name: 'Créer le prospect', exact: true }).click();
   await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   return new URL(page.url()).pathname.split('/').at(-1)!;
@@ -75,9 +75,9 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   expect(saved).toMatchObject({ city: '', business: '', targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', stage: 'À étudier' });
   await expect(page.getByTestId('qualification-summary')).toContainText('0/100');
   await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('qualification');
-  for (const question of questions) {await page.getByRole('combobox',{name:'Critère à examiner · 5',exact:true}).selectOption(['fit','problem','trigger','references','access'][questions.indexOf(question)]);await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();}
+  for (const question of questions) {await page.getByRole('combobox',{name:'Critère à vérifier · 5',exact:true}).selectOption(['fit','problem','trigger','references','access'][questions.indexOf(question)]);await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();}
 
-  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
+  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
   await saveCompany(page);
   await expect.poll(async () => (await backup(request)).companies.find(company => company.id === id)!.contact.email).toBe('bonjour@atelier-du-lez.example');
@@ -94,8 +94,8 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await openQualificationCriterion(page, 'problem');
   await expect(page.getByRole('group', { name: questions[1], exact: true }).getByRole('radio', { name: 'Un problème concret vérifié', exact: true })).toBeChecked();
 
-  await page.getByLabel('Le problème concret observé', { exact: true }).fill('Le formulaire de devis ne permet pas d’envoyer la demande.');
-  await page.getByLabel('Date d’observation du problème', { exact: true }).fill(dateInParis());
+  await page.getByLabel('Le problème concret constaté', { exact: true }).fill('Le formulaire de devis ne permet pas d’envoyer la demande.');
+  await page.getByLabel('Date du constat', { exact: true }).fill(dateInParis());
   await saveQualification(page);
   await expect(page.getByTestId('qualification-summary')).toContainText('40/100');
   await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
@@ -111,7 +111,7 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await answer(page, 0, 'Exactement');
   await saveQualification(page);
   await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
-  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
+  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
   await page.getByLabel('Email professionnel', { exact: true }).fill('');
   await saveCompany(page);
   await expect(page.getByTestId('qualification-summary')).toContainText('35/100');
@@ -122,7 +122,7 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   expect(saved.qualification!.answers.access.answer).toBe('generic');
   expect(saved.contact.email).toBe('');
 
-  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
+  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
   await saveCompany(page);
   await expect(page.getByTestId('qualification-summary')).toContainText('Prêt à contacter');
@@ -180,7 +180,7 @@ test('notes conservées à l’archivage, relevés IA manuels et opposition sans
   await openCompanyInformation(page);
   await expect(page.getByRole('region', { name: 'Notes et échanges', exact: true }).getByRole('list').getByText('Observation conservée : <script>window.hacked = true</script>', { exact: true })).toBeVisible();
 
-  const testsSummary = page.locator('summary').filter({ hasText: 'Tests IA' });
+  const testsSummary = page.locator('summary').filter({ hasText: 'Visibilité IA' });
   await expect(testsSummary.locator('..')).not.toHaveAttribute('open', '');
   await testsSummary.click();
   await page.getByRole('button', { name: 'Ajouter un relevé', exact: true }).click();
@@ -222,7 +222,7 @@ test('notes conservées à l’archivage, relevés IA manuels et opposition sans
   expect(saved.nextAction).toBeNull();
   await expect(page.getByRole('button', { name: 'Prévoir la suite', exact: true })).toHaveCount(0);
   await openCompanyContacts(page);
-  await page.getByText('Informations et étape de l’entreprise', { exact: true }).click();
+  await page.getByText('Informations et étape du prospect', { exact: true }).click();
   await page.getByLabel('Étape commerciale', { exact: true }).selectOption('En échange');
   await saveCompany(page);
   await expect.poll(async () => (await backup(request)).companies.find(company => company.id === id)!.stage).toBe('En échange');
@@ -318,16 +318,16 @@ test('sauvegarde complète restaurée avec aperçu et conservation d’une oppos
 test('création au clavier et écrans étroits sans débordement horizontal', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto('/prospects');
-  const add = page.getByRole('button', { name: 'Ajouter une entreprise', exact: true }).first();
+  const add = page.getByRole('button', { name: 'Ajouter un prospect', exact: true }).first();
   await add.focus();
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Tab');
-  await expect(dialog.getByLabel('Nom de l’entreprise', { exact: false })).toBeFocused();
+  await expect(dialog.getByLabel('Nom du prospect', { exact: false })).toBeFocused();
   await page.keyboard.type('Entreprise créée au clavier');
   for (let index = 0; index < 4; index++) await page.keyboard.press('Tab');
-  await expect(dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Créer le prospect', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Entreprise créée au clavier', exact: true })).toBeVisible();
   const detailUrl = page.url();

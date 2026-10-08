@@ -19,11 +19,11 @@ test('recherche accessible, activité configurable et formulaire utilisable sur 
 
 test('analyse rejette les sites privés et prépare des questions IA sans inventer de résultat', async ({ page, request }) => {
   await page.goto('/prospects');
-  await page.getByRole('button', { name: 'Ajouter une entreprise', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Ajouter un prospect', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel(/^Nom de l’entreprise/).fill('Brine — audit sécurisé');
+  await dialog.getByLabel(/^Nom du prospect/).fill('Brine — audit sécurisé');
   await dialog.getByLabel('Site web', { exact: true }).fill('http://127.0.0.1/');
-  await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Créer le prospect', exact: true }).click();
   await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
   const id = new URL(page.url()).pathname.split('/').at(-1)!;
   await openCompanyInformation(page);

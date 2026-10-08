@@ -3,6 +3,7 @@ import { formatDate } from '@/lib/domain';
 import { evaluateQualification, emptyQualification, OBSERVATION_OPTIONS } from '@/lib/qualification';
 import type { Company, Settings } from '@/lib/types';
 import type { CriterionEvaluation, QualificationData, QualificationEvaluation, ManualObservationKey } from '@/lib/qualification-types';
+import { UI_LABELS } from '@/lib/labels';
 
 type Props = { company: Company & { qualification?: QualificationData }; settings: Settings; today: string; contactDecision?:string; compact?:boolean };
 const criterionNames = { fit: 'Adéquation à la cible', problem: 'Problème concret', trigger: 'Déclencheur pertinent', references: 'Réalisations à valoriser', access: 'Bon interlocuteur' };
@@ -74,11 +75,11 @@ function CriterionEvidence({ criterion, qualification, company }: { criterion: C
       {company.contact.profileUrl && <SourceLink url={company.contact.profileUrl} label="Profil professionnel"/>}
       {answers.access.channelAssociation && <p className="qual-evidence-text">{answers.access.channelAssociation}</p>}
     </>}
-    {!!criterion.linkedObservations.length && <div className="qual-linked-evidence"><h4>Observations reliées manuellement</h4>{criterion.linkedObservations.map(({ key, label, observation }) => <div key={key} className="qual-linked-observation">
+    {!!criterion.linkedObservations.length && <div className="qual-linked-evidence"><h4>{UI_LABELS.evidence.findings} reliés manuellement</h4>{criterion.linkedObservations.map(({ key, label, observation }) => <div key={key} className="qual-linked-observation">
       <strong>{label}</strong><span className="field-help">{OBSERVATION_OPTIONS.find(option => option.value === observation.answer)?.label ?? observation.answer}</span>
       {observation.notes && <p className="qual-evidence-text">{observation.notes}</p>}
       <ObservationExtra observationKey={key} qualification={qualification}/>
-      {observation.observedOn && <p className="field-help">Observation du {formatDate(observation.observedOn)}.</p>}
+      {observation.observedOn && <p className="field-help">{UI_LABELS.evidence.finding} du {formatDate(observation.observedOn)}.</p>}
       {observation.sourceUrl && <SourceLink url={observation.sourceUrl}/>}</div>)}</div>}
   </div>;
 }
@@ -106,7 +107,7 @@ export function QualificationSummary({ company, settings, today, contactDecision
   const evaluation = evaluateQualification(company, settings, today);
   const usesPreparation = Boolean(company.readiness && contactDecision);
   const decision = usesPreparation ? contactDecision! : evaluation.decision;
-  if(compact)return <div className="qualification-compact-summary" aria-label="Résumé de la qualification" data-testid="qualification-summary"><strong>{evaluation.score??evaluation.confirmedPoints}/100 {evaluation.score===null?'points confirmés':'points'} · {evaluation.completedCount}/5 critères renseignés</strong><details><summary>{evaluation.priority||'Priorité à préciser'} · Décision et limites</summary><p>{company.oppositionActive?'Ne plus contacter':company.stage==='Perdu'?'Contact clôturé':decision}</p><p>{evaluation.complete?'Qualification complète':'Qualification en cours'} · {evaluation.nextInformation}</p><p>Repère interne de priorité ; aucune probabilité d’achat. Neuf contrôles distincts, sans points supplémentaires. Une inconnue reste à vérifier.</p>{evaluation.warnings.map((warning,i)=><p key={i}>{warning}</p>)}<QualificationScoreDetails evaluation={evaluation} qualification={qualification} company={company}/></details></div>;
+  if(compact)return <div className="qualification-compact-summary" aria-label="Résumé de la qualification" data-testid="qualification-summary"><strong>{evaluation.score??evaluation.confirmedPoints}/100 {evaluation.score===null?'points confirmés':'points'} · {evaluation.completedCount}/5 critères renseignés</strong><details><summary>{evaluation.priority||'Priorité à préciser'} · Décision et limites</summary><p>{company.oppositionActive?'Ne plus contacter':company.stage==='Perdu'?'Contact clôturé':decision}</p><p>{evaluation.complete?'Qualification complète':'Qualification en cours'} · {evaluation.nextInformation}</p><p>Repère interne de priorité ; neuf {UI_LABELS.evidence.findings.toLocaleLowerCase('fr')} distincts, sans points supplémentaires. Une inconnue reste à vérifier.</p>{evaluation.warnings.map((warning,i)=><p key={i}>{warning}</p>)}<QualificationScoreDetails evaluation={evaluation} qualification={qualification} company={company}/></details></div>;
   return <section className="qual-overview panel" aria-label="Résumé de la qualification" data-testid="qualification-summary">
     <div className="qual-overview-top">
       <div className="qual-score"><span className="eyebrow">Score de qualification</span><QualificationScore evaluation={evaluation}/><div className="qual-completion" role="progressbar" aria-label="Critères validés" aria-valuenow={evaluation.completedCount} aria-valuemin={0} aria-valuemax={5}>{evaluation.criteria.map(criterion => <span key={criterion.key} className={criterion.complete ? 'complete' : ''}/>)}</div></div>

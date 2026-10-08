@@ -87,13 +87,13 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     expect(company).toBeTruthy(); expect(company.contact.phone).toBe('04 00 00 01 23');
     const participation = accepted.campaignData!.participations.find(participation => participation.companyId === company.id && participation.campaignId === campaignId)!;
     expect(participation.qualification.answers.fit.answer).toBe('unknown');
-    await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Contacter et suivre$/ }).click();
+    await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Contacter$/ }).click();
     await expect(page.getByRole('heading', { name: 'Préparer votre conversation', exact: true })).toBeVisible();
-    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue('social-fact-8');
-    await page.getByRole('button', { name: 'Proposer un plan pour cette preuve', exact: true }).click();
+    await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
+    await page.getByRole('button', { name: 'Proposer un plan pour ce constat', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Nouvelle proposition enregistrée.' })).toBeVisible();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue('Le profil présente des exemples de réalisations.');
-    await page.getByRole('checkbox', { name: /Cette entreprise correspond à ma cible/ }).check();
+    await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
@@ -183,7 +183,7 @@ test('V2 — revue mobile 390 px, tous les constats et reprise sans débordement
     expect(commands!.y + commands!.height).toBeLessThanOrEqual(844);
     await page.screenshot({ path: 'test-results/v2-review-mobile.png', fullPage: true });
     await page.goto('/');
-    await expect(page.locator('.preparation-waiting').filter({ hasText: 'V2 — mobile' }).getByRole('link', { name: 'Examiner →', exact: true })).toBeVisible();
+    await expect(page.locator('.preparation-waiting').filter({ hasText: 'V2 — mobile' }).getByRole('link', { name: 'Qualifier →', exact: true })).toBeVisible();
     await page.goto(`/campagnes/${campaignId}`);
     await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Qualifier$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/campagnes/${campaignId}/qualification`));

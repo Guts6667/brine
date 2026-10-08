@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { Camera, ChevronDown } from 'lucide-react';
 import { saveVisualObservationAction } from '@/app/v2-actions';
+import { UI_LABELS } from '@/lib/labels';
 import type { ActionState } from '@/lib/types';
 
 const categories = [
@@ -31,7 +32,7 @@ async function encodeCapture(file: File): Promise<string> {
         if (Math.ceil((data.length - 'data:image/jpeg;base64,'.length) * 3 / 4) <= 100 * 1024) return data;
       }
     }
-    throw new Error('La capture reste trop lourde. Choisissez une zone plus courte pour conserver une preuve lisible.');
+    throw new Error(`La capture reste trop lourde. Choisissez une zone plus courte pour conserver une ${UI_LABELS.evidence.proof.toLocaleLowerCase('fr')} lisible.`);
   } finally { bitmap.close(); }
 }
 
@@ -57,28 +58,28 @@ export function VisualObservationForm({ candidateId, revision, pageUrl }: { cand
   const field = (name: keyof Draft, value: string) => setDraft(old => ({ ...old, [name]: value }));
 
   return <details className="visual-observation print-hidden" data-testid="visual-observation-form">
-    <summary><Camera size={17} aria-hidden="true" /><span>Ajouter un constat visuel</span><ChevronDown size={17} aria-hidden="true" /></summary>
+    <summary><Camera size={17} aria-hidden="true" /><span>Ajouter un {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} visuel</span><ChevronDown size={17} aria-hidden="true" /></summary>
     <form action={dispatch} className="stack visual-observation-body" aria-busy={pending || encoding} onReset={event => event.preventDefault()}>
       <p className="field-help">Un élément masque une photo ou gêne une lecture ? Décrivez ce que vous voyez, sur quelle page et sur quel écran. La capture reste dans votre dossier privé.</p>
       <input type="hidden" name="candidateId" value={candidateId} /><input type="hidden" name="revision" value={revision} />
       {capture && <input type="hidden" name="screenshot" value={capture} />}
       <div className="field"><label htmlFor={prefix + '-page'}>Page observée</label><input id={prefix + '-page'} name="pageUrl" type="url" maxLength={2048} required value={draft.pageUrl} onChange={event => field('pageUrl', event.target.value)} placeholder="https://…" /></div>
       <div className="field"><label htmlFor={prefix + '-element'}>Élément concerné</label><input id={prefix + '-element'} name="element" maxLength={300} required value={draft.element} onChange={event => field('element', event.target.value)} placeholder="Ex. Cartes Avant / après, bouton Comparer" /></div>
-      <div className="field"><label htmlFor={prefix + '-observation'}>Ce que vous observez</label><textarea id={prefix + '-observation'} name="observation" maxLength={3000} required value={draft.observation} onChange={event => field('observation', event.target.value)} placeholder="Ex. Le bouton forme un grand ovale sombre qui masque une partie de chaque photo." /></div>
-      <div className="form-grid"><div className="field"><label htmlFor={prefix + '-category'}>Type de constat</label><select id={prefix + '-category'} name="category" value={draft.category} onChange={event => field('category', event.target.value)}>{categories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div className="field"><label htmlFor={prefix + '-device'}>Écran observé</label><select id={prefix + '-device'} name="device" value={draft.device} onChange={event => field('device', event.target.value)}><option value="desktop">Ordinateur</option><option value="mobile">Téléphone</option></select></div></div>
-      <div className="field"><label htmlFor={prefix + '-date'}>Date de l’observation</label><input id={prefix + '-date'} name="observedOn" type="date" required max={localDate()} value={draft.observedOn} onChange={event => field('observedOn', event.target.value)} /></div>
+      <div className="field"><label htmlFor={prefix + '-observation'}>{UI_LABELS.evidence.finding}</label><textarea id={prefix + '-observation'} name="observation" maxLength={3000} required value={draft.observation} onChange={event => field('observation', event.target.value)} placeholder="Ex. Le bouton forme un grand ovale sombre qui masque une partie de chaque photo." /></div>
+      <div className="form-grid"><div className="field"><label htmlFor={prefix + '-category'}>Type de {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')}</label><select id={prefix + '-category'} name="category" value={draft.category} onChange={event => field('category', event.target.value)}>{categories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div className="field"><label htmlFor={prefix + '-device'}>Écran concerné</label><select id={prefix + '-device'} name="device" value={draft.device} onChange={event => field('device', event.target.value)}><option value="desktop">Ordinateur</option><option value="mobile">Téléphone</option></select></div></div>
+      <div className="field"><label htmlFor={prefix + '-date'}>Date du {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')}</label><input id={prefix + '-date'} name="observedOn" type="date" required max={localDate()} value={draft.observedOn} onChange={event => field('observedOn', event.target.value)} /></div>
       <details><summary>Préciser la taille de l’écran (facultatif)</summary><div className="form-grid"><div className="field"><label htmlFor={prefix + '-width'}>Largeur de l’écran en pixels</label><input id={prefix + '-width'} name="viewportWidth" type="number" min={240} max={10000} /></div><div className="field"><label htmlFor={prefix + '-height'}>Hauteur de l’écran en pixels</label><input id={prefix + '-height'} name="viewportHeight" type="number" min={240} max={10000} /></div></div></details>
-      <div className="field"><label htmlFor={prefix + '-capture'}>Capture de preuve (facultatif)</label><input ref={input} id={prefix + '-capture'} type="file" accept="image/png,image/jpeg,image/webp" disabled={pending} onChange={async event => {
+      <div className="field"><label htmlFor={prefix + '-capture'}>{UI_LABELS.evidence.proof} · capture facultative</label><input ref={input} id={prefix + '-capture'} type="file" accept="image/png,image/jpeg,image/webp" disabled={pending} onChange={async event => {
         const file = event.target.files?.[0], version = ++captureVersion.current; setCapture(''); setCaptureError('');
         if (!file) { setEncoding(false); return; }
         setEncoding(true);
         try { const data = await encodeCapture(file); if (version === captureVersion.current) setCapture(data); }
         catch (error) { if (version === captureVersion.current) setCaptureError(error instanceof Error ? error.message : 'Capture illisible.'); }
         finally { if (version === captureVersion.current) setEncoding(false); }
-      }} /><span className="field-help">Une version allégée est conservée. Vérifiez la lisibilité de la preuve avant de l’enregistrer.</span></div>
-      {capture && <figure className="visual-capture-preview"><img src={capture} alt="Capture de preuve à vérifier avant enregistrement" /><figcaption>Cette capture sera conservée avec le constat et dans l’export complet.</figcaption><button className="button text-button small-button" type="button" onClick={() => { captureVersion.current++; setCapture(''); if (input.current) input.current.value = ''; }}>Retirer la capture</button></figure>}
+      }} /><span className="field-help">Une version allégée est conservée. Vérifiez la lisibilité de la {UI_LABELS.evidence.proof.toLocaleLowerCase('fr')} avant de l’enregistrer.</span></div>
+      {capture && <figure className="visual-capture-preview"><img src={capture} alt={`Capture de ${UI_LABELS.evidence.proof.toLocaleLowerCase('fr')} à vérifier avant enregistrement`} /><figcaption>Cette capture sera conservée avec le {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} et dans l’export complet.</figcaption><button className="button text-button small-button" type="button" onClick={() => { captureVersion.current++; setCapture(''); if (input.current) input.current.value = ''; }}>Retirer la capture</button></figure>}
       {encoding && <p role="status" className="field-help">Préparation de la capture…</p>}{captureError && <p role="alert" className="form-error">{captureError}</p>}
-      <button className="button secondary" type="submit" disabled={pending || encoding || !!captureError}>{pending ? 'Enregistrement…' : 'Enregistrer ce constat'}</button>
+      <button className="button secondary" type="submit" disabled={pending || encoding || !!captureError}>{pending ? 'Enregistrement…' : `Enregistrer ce ${UI_LABELS.evidence.finding.toLocaleLowerCase('fr')}`}</button>
       {state.error && <p role="alert" className="form-error">{state.error}</p>}{state.message && <p role="status" className="form-success">{state.message}</p>}
     </form>
   </details>;

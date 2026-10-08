@@ -17,12 +17,12 @@ async function practice(page: Page, moduleId: string) {
   await page.goto('/apprendre/'+moduleId);
   await page.getByRole('button',{name:'Voir un exemple',exact:true}).click();
   await page.getByRole('button',{name:'Essayer',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'À toi d’essayer.',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'À vous d’essayer.',exact:true})).toBeVisible();
 }
 async function complete(page: Page) {
   await page.getByRole('button',{name:'Faire le point',exact:true}).click();
   await page.getByRole('button',{name:'Terminer le module',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Appliquer à ta campagne.',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Appliquer à votre campagne.',exact:true})).toBeVisible();
 }
 for (const width of [1280,390]) test(`six modules, reprise et guide sans altération des prospects à ${width}px`,async({page,request})=>{
   test.setTimeout(240000); await page.context().grantPermissions(['clipboard-read','clipboard-write']); await page.setViewportSize({width,height:900}); const baseline=await read(request);
@@ -47,15 +47,15 @@ for (const width of [1280,390]) test(`six modules, reprise et guide sans altéra
     await page.getByRole('button',{name:'Passer aux critères',exact:true}).click();
     for (let i=0;i<CRITERION_ORDER.length;i++) {const key=CRITERION_ORDER[i];await page.locator(`input[name="criterion-${key}"][value="${CRITERION_EXPECTED[key]}"]`).check();await page.getByRole('button',{name:'Accepter la réponse et ses points',exact:true}).click();
       if(i===1){await expect(score).toContainText('35/100');await expect(score).toContainText('2/5');}
-      await page.getByRole('button',{name:i===4?'Décider pour ce prospect':'Critère suivant',exact:true}).click();
+      await page.getByRole('button',{name:i===4?'Qualifier ce prospect':'Critère suivant',exact:true}).click();
     }
     await expect(score).toContainText('55/100');await expect(score).toContainText('5/5');await page.getByRole('radio',{name:'Garder pour plus tard',exact:true}).check();await complete(page);
     await practice(page,'email');await page.locator('input[type=radio][value=useful]').check();await page.getByRole('button',{name:'Préparer mon email d’essai',exact:true}).click();
     const draft='Bonjour, je suis Rayan de Pickles Studio. Dans votre galerie mobile, le bouton masque une photo. Je peux vous partager deux pistes ciblées. Est-ce vous qui gérez le site ?';
-    await page.getByLabel('Ton premier email',{exact:true}).fill(draft);
+    await page.getByLabel('Votre premier email',{exact:true}).fill(draft);
     await page.getByRole('link',{name:'Le parcours',exact:true}).click();
     await expect.poll(async()=>(await read(request)).campaignData!.learningProgress?.answers.email?.emailText).toBe(draft);
-    await page.getByRole('link',{name:'Reprendre',exact:true}).click();await expect(page.getByLabel('Ton premier email',{exact:true})).toHaveValue(draft);
+    await page.getByRole('link',{name:'Reprendre',exact:true}).click();await expect(page.getByLabel('Votre premier email',{exact:true})).toHaveValue(draft);
     for(const item of EMAIL_CHECKS)await page.getByRole('checkbox',{name:item.label,exact:true}).check();
     await page.getByRole('button',{name:'Copier cet email d’essai',exact:true}).click();await expect(page.getByRole('status').filter({hasText:'Aucun contact'})).toBeVisible();
     await page.getByText('Un bilan PDF en complément, si utile',{exact:true}).click();const pdf=await request.get('/api/learning/example-brief');expect(pdf.headers()['x-brine-learning-example']).toBe('fictional');expect((await PDFDocument.load(await pdf.body())).getPageCount()).toBe(2);
@@ -64,7 +64,7 @@ for (const width of [1280,390]) test(`six modules, reprise et guide sans altéra
     await practice(page,'suivi');for(let i=0;i<FOLLOWUP_QUESTIONS.length;i++){await page.locator(`input[type=radio][value="${FOLLOWUP_QUESTIONS[i].correct}"]`).check();if(i<4)await page.getByRole('button',{name:'Situation suivante',exact:true}).click();}await complete(page);
     await practice(page,'echange');await page.locator('input[type=radio][value=open]').check();await page.getByRole('button',{name:'Écouter la réponse fictive',exact:true}).click();
     for(const label of [/Besoin confirmé/,/Intervention pertinente/,/Chemin de décision/,/Prochaine étape acceptée/,/Budget : non abordé/])await page.getByRole('checkbox',{name:label}).check();
-    await page.getByLabel('Reformule le besoin et la suite en une ou deux phrases.',{exact:true}).fill('Vous souhaitez améliorer la lecture mobile de la galerie. Je vous envoie les deux pistes convenues.');await page.getByRole('checkbox',{name:/J’ai relu : ma reformulation/}).check();await complete(page);
+    await page.getByLabel('Reformulez le besoin et la suite en une ou deux phrases.',{exact:true}).fill('Vous souhaitez améliorer la lecture mobile de la galerie. Je vous envoie les deux pistes convenues.');await page.getByRole('checkbox',{name:/J’ai relu : ma reformulation/}).check();await complete(page);
     await page.goto('/apprendre');await expect(page.getByRole('progressbar',{name:'Modules terminés'})).toHaveAttribute('aria-valuenow','6');
     let after=await read(request);expect(after.campaignData!.learningProgress!.mission.recordedContact).toBe(false);expect(business(after)).toEqual(business(before));
     await page.goto(`/campagnes/${campaignId}?etape=rechercher`);await page.getByText('Ma cible et spécialisation de campagne',{exact:true}).click();
@@ -84,8 +84,8 @@ for (const width of [1280,1920,390]) test(`le module après échange mène aux i
   const baseline=await read(request),campaignId=baseline.campaignData!.campaigns[0].id;
   try {
     await page.goto(`/campagnes/${campaignId}?etape=suivre`);
-    await page.getByRole('button',{name:'Ajouter une entreprise',exact:true}).click();
-    const dialog=page.getByRole('dialog');await dialog.getByLabel('Nom de l’entreprise',{exact:false}).fill('Atelier essai après échange');await dialog.getByRole('button',{name:'Créer l’entreprise',exact:true}).click();
+    await page.getByRole('button',{name:'Ajouter un prospect',exact:true}).click();
+    const dialog=page.getByRole('dialog');await dialog.getByLabel('Nom du prospect',{exact:false}).fill('Atelier essai après échange');await dialog.getByRole('button',{name:'Créer le prospect',exact:true}).click();
     await expect(page).toHaveURL(/\/prospects\//);const companyId=new URL(page.url()).pathname.split('/').at(-1)!;
     await page.goto(`/campagnes/${campaignId}?etape=suivre&prospect=${companyId}&guide=echange`);
     const form=page.getByTestId('after-exchange-form');await expect(form).toBeVisible();

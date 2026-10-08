@@ -7,6 +7,7 @@ import { importCompanyAction, searchCompaniesAction } from '@/app/automation-act
 import type { CompanyCandidate, CompanySearchInput } from '@/lib/company-search';
 import type { SearchState, ImportState } from '@/lib/automation-types';
 import type { Settings } from '@/lib/types';
+import { UI_LABELS } from '@/lib/labels';
 
 const activities = [
   ['43.32A,43.33Z,43.34Z', 'Second œuvre : menuiserie, revêtements et peinture'],
@@ -42,7 +43,7 @@ export function CompanyDiscovery({ settings }: { settings: Settings }) {
       {activity === 'custom' ? <div className="field"><label htmlFor="discovery-codes">Codes d’activité NAF</label><input id="discovery-codes" name="activityCodes" required maxLength={200} placeholder="Ex. 43.34Z, 43.33Z"/><span className="field-help">Un ou plusieurs codes séparés par une virgule. <a href="https://www.insee.fr/fr/information/2120875" target="_blank" rel="noopener noreferrer">Consulter la nomenclature INSEE</a>.</span></div> : <input type="hidden" name="activityCodes" value={activity}/>}
       <div className="field"><label htmlFor="discovery-query">Nom de l’entreprise (facultatif)</label><input id="discovery-query" name="query" maxLength={180} placeholder="Pour retrouver une entreprise précise"/></div>
       <p className="field-help">Source : <a href="https://recherche-entreprises.api.gouv.fr/docs/" target="_blank" rel="noopener noreferrer">API publique Recherche d’entreprises</a>. La sélection utilise l’activité déclarée et les établissements actifs de la commune. Le site et les coordonnées ne sont pas fournis par ce registre.</p>
-      <button type="submit" name="page" value="1" className="button primary" disabled={pending}><Search size={16}/>{pending ? 'Recherche…' : 'Rechercher des entreprises'}</button>
+      <button type="submit" name="page" value="1" className="button primary" disabled={pending}><Search size={16}/>{pending ? 'Recherche…' : `${UI_LABELS.steps.search} des ${UI_LABELS.entities.companies.toLocaleLowerCase('fr')}`}</button>
       {state.error && <p className="form-error" role="alert">{state.error}</p>}
     </form></section>
     {state.result && <section className="stack" aria-live="polite" aria-busy={pending}>

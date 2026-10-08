@@ -11,6 +11,7 @@ import { generateContactPreparationWithAI } from '@/lib/research-providers';
 import { recordCreditPurchase } from '@/lib/research-budget';
 import type { ActionState } from '@/lib/types';
 import { parseVisualObservation } from '@/lib/visual-evidence';
+import { UI_LABELS } from '@/lib/labels';
 const str=(data:FormData,name:string)=>String(data.get(name)||'').trim();
 async function authorize(){const h=await headers();if(!isAllowedRequest(h.get('host'),h.get('origin'),h.get('sec-fetch-site')))throw new Error('Requête non autorisée.');await requireAuthenticated();}
 function fail(e:unknown):ActionState{return {error:e instanceof Error?e.message:'Enregistrement impossible.'};}
@@ -53,5 +54,5 @@ export async function saveVisualObservationAction(_:ActionState,data:FormData):P
   if(Boolean(width)!==Boolean(height))throw new Error('Indiquez la largeur et la hauteur de l’écran, ou laissez les deux champs vides.');
   const input=parseVisualObservation({pageUrl:str(data,'pageUrl'),element:str(data,'element'),category:str(data,'category'),device:str(data,'device'),observation:str(data,'observation'),observedOn:str(data,'observedOn'),...(width&&height?{viewport:{width:Number(width),height:Number(height)}}:{}),...(str(data,'screenshot')?{screenshot:str(data,'screenshot')}:{})});
   await(await getCampaignRepository()).addVisualObservation(str(data,'candidateId'),Number(str(data,'revision')),input);
-  refresh();return {ok:true,message:'Observation visuelle conservée dans le dossier, sans nouvelle recherche. Les préparations existantes sont à revalider.'};
+  refresh();return {ok:true,message:`${UI_LABELS.evidence.finding} visuel conservé dans le dossier, sans nouvelle recherche. Les préparations existantes sont à revalider.`};
 }catch(e){return fail(e);}}

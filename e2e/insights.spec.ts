@@ -69,11 +69,11 @@ async function launch(page: Page, request: APIRequestContext, name: string, hasO
 async function openVisualForm(page: Page) {
   const form = page.getByTestId('visual-observation-form');
   if (!(await form.evaluate(element => (element as HTMLDetailsElement).open))) await form.locator(':scope > summary').click();
-  await expect(form.getByLabel('Ce que vous observez', { exact: true })).toBeVisible();
+  await expect(form.getByLabel('Constat', { exact: true })).toBeVisible();
   return form;
 }
 
-test('Examiner — un constat visuel compréhensible mène au contact, le dossier reste complet et imprimable', async ({ page, request }) => {
+test('Qualifier — un constat visuel compréhensible mène au contact, le dossier reste complet et imprimable', async ({ page, request }) => {
   test.setTimeout(150_000);
   const baseline = await backup(request);
   try {
@@ -100,21 +100,21 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
     const form = await openVisualForm(page);
     await form.getByLabel('Page observée', { exact: true }).fill(candidate.website);
     await form.getByLabel('Élément concerné', { exact: true }).fill(element);
-    await form.getByLabel('Ce que vous observez', { exact: true }).fill(observation);
+    await form.getByLabel('Constat', { exact: true }).fill(observation);
     await form.getByLabel('Type de constat', { exact: true }).selectOption('overlap');
-    await form.getByLabel('Écran observé', { exact: true }).selectOption('desktop');
-    await form.getByLabel('Date de l’observation', { exact: true }).fill(today());
+    await form.getByLabel('Écran concerné', { exact: true }).selectOption('desktop');
+    await form.getByLabel('Date du constat', { exact: true }).fill(today());
     // An unfinished note survives leaving the page; a capture is attached afterwards.
     await page.goto('/campagnes');
     await page.goto(reviewUrl);
     const resumed = await openVisualForm(page);
-    await expect(resumed.getByLabel('Ce que vous observez', { exact: true })).toHaveValue(observation);
+    await expect(resumed.getByLabel('Constat', { exact: true })).toHaveValue(observation);
     await confirmFact(page,'quote404');await openLegacyInsights(page);
     const initialCard = page.getByTestId('priority-insight').filter({ hasText: 'Le lien Demander un devis renvoie HTTP 404.' });
     await initialCard.getByRole('button', { name: 'Choisir ce constat', exact: true }).click();
     await review.locator('.review-personal-note > summary').click();
     await review.getByLabel('Ce que je veux approfondir', { exact: true }).fill(personalNote);
-    await resumed.getByLabel('Capture de preuve (facultatif)', { exact: true }).setInputFiles({ name: 'preuve-interface-de-test.jpg', mimeType: 'image/jpeg', buffer: capture });
+    await resumed.getByLabel('Preuve · capture facultative', { exact: true }).setInputFiles({ name: 'preuve-interface-de-test.jpg', mimeType: 'image/jpeg', buffer: capture });
     await expect(resumed.getByRole('img', { name: 'Capture de preuve à vérifier avant enregistrement', exact: true })).toBeVisible();
     await resumed.getByRole('button', { name: 'Enregistrer ce constat', exact: true }).click();
     await expect.poll(async () => (await backup(request)).campaignData!.candidates.find(value => value.id === candidate.id)?.research?.facts.filter(fact => fact.visual).length).toBe(1);
@@ -151,11 +151,11 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
 
     const preparationUrl = `/campagnes/${campaignId}?etape=preparer&prospect=${companyId}`;
     await page.goto(preparationUrl);
-    await expect(page.getByLabel('Preuve principale', { exact: true })).toHaveValue(fact.id);
+    await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue(fact.id);
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue(observation);
     await expect(page.getByLabel('Aide proportionnée', { exact: true })).toHaveValue(/corriger l’affichage de cet élément/);
     await expect(page.getByLabel('Aide proportionnée', { exact: true })).not.toHaveValue(/refonte/);
-    await page.getByRole('checkbox', { name: /Cette entreprise correspond à ma cible/ }).check();
+    await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
     await page.getByRole('button', { name: 'Valider et préparer mes textes', exact: true }).click();
@@ -167,7 +167,7 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
 
     await page.goto(`/campagnes/lots/${runId}?filtre=accepted&candidat=${candidate.id}`);
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByRole('link', { name: 'Préparer ce contact', exact: true })).toBeVisible();
+    await expect(page.getByTestId('prospect-review').getByRole('link', { name: 'Contacter', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await expect(page.getByTestId('prospect-report').getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
     await page.screenshot({ path: 'test-results/insights-review-mobile.png', fullPage: true });
@@ -179,7 +179,7 @@ test('Examiner — un constat visuel compréhensible mène au contact, le dossie
     const allFactIds = updated.research!.report!.facts.map(value => value.id);
     for (const id of allFactIds) await expect(page.locator(`[data-fact-id="${id}"]`)).toBeVisible();
     await page.emulateMedia({ media: 'print' });
-    const proof = page.locator(`[data-fact-id="${fact.id}"]`).getByRole('img', { name: `Constat visuel : ${element}, sur ordinateur, observé le ${frenchDate(fact.observedOn)}`, exact: true });
+    const proof = page.locator(`[data-fact-id="${fact.id}"]`).getByRole('img', { name: `Constat visuel : ${element}, sur ordinateur, relevé le ${frenchDate(fact.observedOn)}`, exact: true });
     await expect(proof).toBeVisible();
     await expect(proof).toHaveAttribute('loading','eager');
     await expect.poll(()=>proof.evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true);

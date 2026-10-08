@@ -1,7 +1,7 @@
-import {appendStudyEvidence} from './ai-study-evidence';
+import {appendStudyEvidence,appendStudyEvidenceFromStudies} from './ai-study-evidence';
 import {aiStudySchema} from './ai-study-schema';
 import { createHash, randomUUID } from 'node:crypto';
-import type { Client, InValue, Transaction } from '@libsql/client';
+import type { Client, InStatement, InValue, Transaction } from '@libsql/client';
 import { z } from 'zod';
 import { companyInputSchema, companyDetailsSchema, settingsSchema, parisToday, isValidDate, normalizeText, normalizedDomain, nextActionInputSchema, activityInputSchema } from './domain';
 import { emptyQualification, qualificationDataSchema, captureTarget, qualificationInputSchema, observationsSchema, afterExchangeInputSchema, canQualifyOpportunity, targetSnapshotSchema } from './qualification';
@@ -173,6 +173,26 @@ export class CampaignRepository {
   async listCompanies(campaignId: string): Promise<CampaignCompany[]> {
     return this.readTransaction(async tx => { const campaign = await this.campaign(tx, campaignId); const rows = await tx.execute({ sql: 'SELECT payload FROM campaign_participations WHERE campaignId = ?', args: [campaignId] }); const companies: CampaignCompany[] = []; for (const r of rows.rows) { const p = json<Participation>(r.payload); companies.push(this.project(await this.shared(tx, p.companyId), p, campaign)); } return companies.sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)); });
   }
+  async listCompaniesByCampaign(campaignIds:string[]):Promise<Record<string,CampaignCompany[]>>{
+    const ids=[...new Set(campaignIds)];const grouped=Object.fromEntries(ids.map(id=>[id,[] as CampaignCompany[]]));if(!ids.length)return grouped;
+    const rows=await this.client.execute({sql:`SELECT c.*,p.campaignId AS groupCampaignId,p.payload AS participationPayload,ca.payload AS campaignPayload,
+      ct.name AS contactName,ct.role AS contactRole,ct.email AS contactEmail,ct.phone AS contactPhone,ct.formUrl AS contactFormUrl,ct.profileUrl AS contactProfileUrl,
+      a.id AS actionId,a.text AS actionText,a.date AS actionDate,a.createdAt AS actionCreatedAt
+      FROM campaign_participations p JOIN campaigns ca ON ca.id=p.campaignId JOIN companies c ON c.id=p.companyId
+      LEFT JOIN contacts ct ON ct.companyId=c.id LEFT JOIN next_actions a ON a.companyId=c.id
+      WHERE p.campaignId IN (SELECT value FROM json_each(?))`,args:[JSON.stringify(ids)]});
+    for(const row of rows.rows){
+      const campaignId=String(row.groupCampaignId),campaign=json<Campaign>(row.campaignPayload),participation=json<Participation>(row.participationPayload);
+      const qualification=json<Record<string,unknown>>(row.qualification),contact:Contact={name:String(row.contactName||''),role:String(row.contactRole||''),email:String(row.contactEmail||''),phone:String(row.contactPhone||''),formUrl:String(row.contactFormUrl||''),profileUrl:String(row.contactProfileUrl||'')};
+      const action=row.actionId?{id:String(row.actionId),text:String(row.actionText),date:String(row.actionDate),createdAt:String(row.actionCreatedAt)}:null;
+      const excluded=new Set(['groupCampaignId','participationPayload','campaignPayload','contactName','contactRole','contactEmail','contactPhone','contactFormUrl','contactProfileUrl','actionId','actionText','actionDate','actionCreatedAt']);
+      const base=Object.fromEntries(Object.entries(row).filter(([key])=>!excluded.has(key)&&key!=='qualification'&&key!=='commercialStage')) as unknown as Company;
+      const company={...base,stage:String(row.commercialStage||row.stage),qualification:Object.keys(qualification).length?qualificationDataSchema.parse(qualification):emptyQualification(),contact,nextAction:action,archived:Boolean(row.archived),oppositionActive:Boolean(row.oppositionActive)} as Company;
+      grouped[campaignId].push(this.project(company,participation,campaign));
+    }
+    for(const companies of Object.values(grouped))companies.sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+    return grouped;
+  }
   async getCompany(campaignId: string, companyId: string): Promise<CampaignCompany> { return this.readTransaction(async tx => this.project(await this.shared(tx, companyId), await this.participation(tx, campaignId, companyId), await this.campaign(tx, campaignId))); }
   async memberships(companyId: string): Promise<Participation[]> { return (await this.client.execute({ sql: 'SELECT payload FROM campaign_participations WHERE companyId = ?', args: [companyId] })).rows.map(r => json(r.payload)); }
   private async attachTx(tx: Transaction, campaignId: string, companyId: string) {
@@ -285,6 +305,24 @@ export class CampaignRepository {
   async clearOpposedActions(id:string) { await this.transaction(async tx=>{const shared=await this.shared(tx,id);if(!shared.oppositionActive)return;const rows=await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE companyId = ?',args:[id]});for(const row of rows.rows){const p=json<Participation>(row.payload);if(p.nextAction){p.nextAction=null;p.revision++;p.updatedAt=timestamp();await this.writeParticipation(tx,p);await this.log(tx,id,p.campaignId,'Opposition commune : action annulée.');}}}); }
   async putRun(tx:Transaction,run:DiscoveryRun) { await tx.execute({sql:'INSERT INTO discovery_runs(id, campaignId, payload) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload',args:[run.id,run.campaignId,JSON.stringify(run)]}); }
   async listRuns(campaignId?:string):Promise<DiscoveryRun[]> {const rows=await this.client.execute(campaignId?{sql:'SELECT payload FROM discovery_runs WHERE campaignId = ? ORDER BY rowid DESC',args:[campaignId]}:'SELECT payload FROM discovery_runs ORDER BY rowid DESC');return rows.rows.map(r=>json(r.payload));}
+  async listRunsByCampaign(campaignIds:string[]):Promise<Record<string,DiscoveryRun[]>>{
+    const ids=[...new Set(campaignIds)],grouped=Object.fromEntries(ids.map(id=>[id,[] as DiscoveryRun[]]));if(!ids.length)return grouped;
+    const rows=await this.client.execute({sql:'SELECT campaignId,payload FROM discovery_runs WHERE campaignId IN (SELECT value FROM json_each(?)) ORDER BY rowid DESC',args:[JSON.stringify(ids)]});
+    for(const row of rows.rows)grouped[String(row.campaignId)].push(json<DiscoveryRun>(row.payload));return grouped;
+  }
+  async countReviewCandidatesByCampaign(campaignIds?:string[]):Promise<Record<string,number>>{
+    const ids=campaignIds?[...new Set(campaignIds)]:undefined,counts=Object.fromEntries((ids||[]).map(id=>[id,0]));
+    const rows=await this.client.execute(ids?{sql:`SELECT r.campaignId,COUNT(*) AS count FROM discovery_candidates c JOIN discovery_runs r ON r.id=c.runId
+      WHERE r.campaignId IN (SELECT value FROM json_each(?)) AND json_extract(c.payload,'$.status') IN ('review','needs_site','verify') GROUP BY r.campaignId`,args:[JSON.stringify(ids)]}:{sql:`SELECT r.campaignId,COUNT(*) AS count FROM discovery_candidates c JOIN discovery_runs r ON r.id=c.runId
+      WHERE json_extract(c.payload,'$.status') IN ('review','needs_site','verify') GROUP BY r.campaignId`,args:[]});
+    for(const row of rows.rows)counts[String(row.campaignId)]=Number(row.count);return counts;
+  }
+  async countReviewCandidatesByRun(runIds:string[]):Promise<Record<string,number>>{
+    const ids=[...new Set(runIds)],counts=Object.fromEntries(ids.map(id=>[id,0]));if(!ids.length)return counts;
+    const rows=await this.client.execute({sql:`SELECT runId,COUNT(*) AS count FROM discovery_candidates
+      WHERE runId IN (SELECT value FROM json_each(?)) AND json_extract(payload,'$.status') IN ('review','needs_site','verify') GROUP BY runId`,args:[JSON.stringify(ids)]});
+    for(const row of rows.rows)counts[String(row.runId)]=Number(row.count);return counts;
+  }
   async getRun(id:string):Promise<DiscoveryRun> {const rows=await this.client.execute({sql:'SELECT payload FROM discovery_runs WHERE id = ?',args:[id]});if(!rows.rows.length)throw new Error('Lot introuvable.');return json(rows.rows[0].payload);}
   async listCandidates(runId:string):Promise<DiscoveryCandidate[]> {return (await this.client.execute({sql:'SELECT payload FROM discovery_candidates WHERE runId = ? ORDER BY rowid',args:[runId]})).rows.map(r=>json(r.payload));}
   async getCandidate(id:string):Promise<DiscoveryCandidate> {const r=await this.client.execute({sql:'SELECT payload FROM discovery_candidates WHERE id = ?',args:[id]});if(!r.rows.length)throw new Error('Résultat introuvable.');return json(r.rows[0].payload);}
@@ -608,6 +646,42 @@ export class CampaignRepository {
     return enrichCompanyReport(report,company,campaign,tests,corrections,activities);
   }
   getCompanyReport(campaignId:string,companyId:string){return this.readTransaction(tx=>this.companyReportTx(tx,campaignId,companyId));}
+  async getCompanyReports(campaignId:string,companyIds:string[]):Promise<Map<string,ProspectReport|null>>{
+    const ids=[...new Set(companyIds)],reports=new Map<string,ProspectReport|null>();if(!ids.length)return reports;
+    return this.readTransaction(async tx=>{
+      const idList=JSON.stringify(ids),statement=(sql:string,args:InValue[]=[]):InStatement=>({sql,args});
+      const results=await tx.batch([
+        statement('SELECT payload FROM campaigns WHERE id=?',[campaignId]),
+        statement("SELECT companyId,payload FROM campaign_participations WHERE campaignId=? AND companyId IN (SELECT value FROM json_each(?))",[campaignId,idList]),
+        statement('SELECT * FROM companies WHERE id IN (SELECT value FROM json_each(?))',[idList]),
+        statement('SELECT * FROM contacts WHERE companyId IN (SELECT value FROM json_each(?))',[idList]),
+        statement('SELECT * FROM next_actions WHERE companyId IN (SELECT value FROM json_each(?))',[idList]),
+        statement("SELECT json_extract(c.payload,'$.companyId') AS companyId,c.payload FROM discovery_candidates c JOIN discovery_runs r ON r.id=c.runId WHERE json_extract(c.payload,'$.companyId') IN (SELECT value FROM json_each(?)) ORDER BY json_extract(c.payload,'$.companyId'),CASE WHEN r.campaignId=? THEN 0 ELSE 1 END,c.rowid DESC",[idList,campaignId]),
+        statement('SELECT * FROM ai_tests WHERE companyId IN (SELECT value FROM json_each(?))',[idList]),
+        statement('SELECT companyId,payload FROM research_fact_corrections WHERE companyId IN (SELECT value FROM json_each(?)) ORDER BY rowid',[idList]),
+        statement('SELECT * FROM activities WHERE companyId IN (SELECT value FROM json_each(?)) ORDER BY createdAt DESC,rowid DESC',[idList]),
+        statement('SELECT payload FROM research_ai_studies WHERE campaignId=?',[campaignId]),
+      ]);
+      if(!results[0].rows.length)throw new Error('Campagne introuvable.');const campaign=json<Campaign>(results[0].rows[0].payload);
+      const by=<T>(rows:readonly Record<string,unknown>[],key:string,convert:(row:Record<string,unknown>)=>T)=>{const map=new Map<string,T[]>();for(const row of rows){const id=String(row[key]),values=map.get(id)||[];values.push(convert(row));map.set(id,values);}return map;};
+      const participations=new Map(results[1].rows.map(row=>[String(row.companyId),json<Participation>(row.payload)]));
+      const contacts=new Map(results[3].rows.map(row=>{const {companyId,...contact}=row;return [String(companyId),contact as unknown as Contact] as const;}));
+      const actions=new Map(results[4].rows.map(row=>{const {companyId,...action}=row;return [String(companyId),action] as const;}));
+      const companies=new Map(results[2].rows.map(row=>{const qualification=json<Record<string,unknown>>(row.qualification),{commercialStage,...base}=row;return [String(row.id),{...base,stage:commercialStage||row.stage,qualification:Object.keys(qualification).length?qualificationDataSchema.parse(qualification):emptyQualification(),contact:contacts.get(String(row.id))||{name:'',role:'',email:'',phone:'',formUrl:'',profileUrl:''},nextAction:actions.get(String(row.id))||null,archived:Boolean(row.archived),oppositionActive:Boolean(row.oppositionActive)} as unknown as Company] as const;}));
+      const candidates=by(results[5].rows as unknown as Record<string,unknown>[],'companyId',row=>json<DiscoveryCandidate>(row.payload));
+      const tests=by(results[6].rows as unknown as Record<string,unknown>[],'companyId',row=>row as unknown as import('./types').AiTest);
+      const corrections=by(results[7].rows as unknown as Record<string,unknown>[],'companyId',row=>json<ResearchCorrection>(row.payload));
+      const activities=by(results[8].rows as unknown as Record<string,unknown>[],'companyId',row=>row as unknown as Activity);
+      const studies=results[9].rows.map(row=>aiStudySchema.parse(json(row.payload)));
+      for(const id of ids){
+        const participation=participations.get(id);if(!participation)throw new Error('Cette entreprise ne participe pas à cette campagne.');const shared=companies.get(id);if(!shared)throw new Error('Entreprise introuvable.');const company=this.project(shared,participation,campaign),companyCandidates=candidates.get(id)||[];
+        let report=enrichCompanyReport(mergeCandidateReports(companyCandidates.map(candidate=>candidate.research?.report||buildProspectReport(candidate,campaign)),campaign),company,campaign,tests.get(id)||[],[],activities.get(id)||[]);
+        report=appendStudyEvidenceFromStudies(report,studies,id,null);for(const candidate of companyCandidates)report=appendStudyEvidenceFromStudies(report,studies,null,candidate.id);
+        reports.set(id,enrichCompanyReport(report,company,campaign,tests.get(id)||[],corrections.get(id)||[],activities.get(id)||[]));
+      }
+      return reports;
+    });
+  }
   async correctReportFact(campaignId:string,id:string,factId:string,note:string,expected?:number,mode:'fact'|'hypothesis'='fact'){
     const parsed=z.string().trim().min(1,'Précisez la correction.').max(10000).parse(note);
     z.enum(['fact','hypothesis']).parse(mode);

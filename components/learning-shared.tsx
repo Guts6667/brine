@@ -34,14 +34,14 @@ export function useLearningSession(initial: LearningProgress) {
         if (state.progress) { current.current = state.progress; setProgress(state.progress); }
         if (!state.ok) {
           failed.current = command;
-          setError(state.error || 'La progression n’a pas pu être enregistrée. Ton brouillon reste affiché.');
+          setError(state.error || 'La progression n’a pas pu être enregistrée. Votre brouillon reste affiché.');
           return false;
         }
         setError('');
         return true;
       } catch {
         failed.current = command;
-        setError('Enregistrement indisponible. Ton brouillon reste affiché ; réessaie avant de quitter.');
+        setError('Enregistrement indisponible. Votre brouillon reste affiché ; réessayez avant de quitter.');
         return false;
       }
     }).finally(() => { pending.current--; if (!pending.current) setSaving(false); });
@@ -55,7 +55,7 @@ export function useLearningSession(initial: LearningProgress) {
 
 export function LearningSaveStatus({ saving, error, retry, dirty = false }: { saving: boolean; error: string; retry: () => unknown; dirty?: boolean }) {
   return <div className={`learn-save ${error ? 'learn-save-error' : ''}`} aria-live="polite">
-    {error ? <><AlertCircle size={16} aria-hidden="true"/><span>{error} Les réponses affichées sont conservées. Réessaie pour enregistrer ce brouillon.</span><button type="button" className="learn-button learn-button-quiet" onClick={retry}>Réessayer</button></>
+    {error ? <><AlertCircle size={16} aria-hidden="true"/><span>{error} Les réponses affichées sont conservées. Réessayez pour enregistrer ce brouillon.</span><button type="button" className="learn-button learn-button-quiet" onClick={retry}>Réessayer</button></>
       : saving || dirty ? <><LoaderCircle size={15} aria-hidden="true"/><span>Enregistrement…</span></>
         : <><Check size={15} aria-hidden="true"/><span>Progression enregistrée</span></>}
   </div>;

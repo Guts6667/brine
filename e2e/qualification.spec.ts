@@ -15,10 +15,10 @@ async function savedCompany(request: APIRequestContext, id: string): Promise<Com
 
 async function createCompany(page: Page, name: string): Promise<string> {
   await page.goto('/prospects');
-  await page.getByRole('button', { name: 'Ajouter une entreprise', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Ajouter un prospect', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel(/^Nom de l’entreprise/).fill(name);
-  await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
+  await dialog.getByLabel(/^Nom du prospect/).fill(name);
+  await dialog.getByRole('button', { name: 'Créer le prospect', exact: true }).click();
   await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   return new URL(page.url()).pathname.split('/').at(-1)!;
@@ -45,14 +45,14 @@ async function saveQualification(page: Page, request: APIRequestContext, id: str
 }
 
 async function saveContact(page: Page, request: APIRequestContext, id: string, email: string) {
-  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
+  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('contact');
   await page.getByLabel('Email professionnel', { exact: true }).fill(email);
   await page.getByRole('button', { name: 'Enregistrer la fiche', exact: true }).click();
   await expect.poll(async () => (await savedCompany(request, id)).contact.email).toBe(email);
 }
 
 async function fillObservation(page: Page, key: string, answer: string, notes?: string, source?: string) {
-  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('observations');await page.getByRole('combobox',{name:'Contrôle à examiner · 9',exact:true}).selectOption(key);const row = page.getByTestId(`observation-${key}`);
+  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('observations');await page.getByRole('combobox',{name:'Constat à vérifier · 9',exact:true}).selectOption(key);const row = page.getByTestId(`observation-${key}`);
   await row.getByRole('combobox').first().selectOption(answer);
   if (notes || source) {
     await row.locator('summary').click();
@@ -63,7 +63,7 @@ async function fillObservation(page: Page, key: string, answer: string, notes?: 
 }
 
 async function fillRecognizedExchange(page: Page) {
-  await page.getByRole('button',{name:'Examiner et qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('exchange');
+  await page.getByRole('button',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('exchange');
   const section = page.locator('details.after-exchange-block');
   if (!(await section.evaluate(element => (element as HTMLDetailsElement).open))) await section.locator('summary').first().click();
   const form = page.getByTestId('after-exchange-form');
@@ -99,13 +99,13 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await fillObservation(page, 'inactivity', 'no');
   await page.getByLabel('Taille de l’entreprise (si connue et utile)', { exact: true }).fill('Une personne, selon sa présentation publique.');
   const observationForm = page.getByTestId('observation-form');
-  await observationForm.getByRole('button', { name: 'Enregistrer les observations', exact: true }).click();
-  await expect(observationForm.getByRole('status')).toContainText('Observations enregistrées.');
+  await observationForm.getByRole('button', { name: 'Enregistrer les constats', exact: true }).click();
+  await expect(observationForm.getByRole('status')).toContainText('Constats enregistrés.');
   await expect.poll(async () => (await savedCompany(request, id)).qualification!.observations.items.mobile.notes).toBe(mobileNote);
   await expect(summary).toContainText('0/100');
   await page.getByRole('combobox',{name:'Espace de travail',exact:true}).selectOption('qualification');
   for (const criterion of ['fit', 'problem', 'trigger', 'references', 'access']) {
-    await page.getByRole('combobox',{name:'Critère à examiner · 5',exact:true}).selectOption(criterion);
+    await page.getByRole('combobox',{name:'Critère à vérifier · 5',exact:true}).selectOption(criterion);
     await expect(page.getByTestId(`qualification-question-${criterion}`).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();
   }
 
@@ -114,11 +114,11 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await page.getByRole('checkbox', { name: 'Je confirme cette évaluation par rapport à la cible actuelle.', exact: true }).check();
   await choose(page, 'problem', 'Plusieurs problèmes distincts ou un blocage important');
   const problem = page.getByTestId('qualification-question-problem');
-  await problem.locator('summary').filter({ hasText: 'Relier mes observations' }).click();
+  await problem.locator('summary').filter({ hasText: 'Relier mes constats' }).click();
   await problem.locator('input[type="checkbox"][value="mobile"]').check();
   await problem.locator('input[type="checkbox"][value="contact"]').check();
   await problem.getByRole('button', { name: 'Reprendre les notes sélectionnées', exact: true }).click();
-  await expect(page.getByLabel('Le problème concret observé', { exact: true })).toHaveValue(/Le menu recouvre le numéro de téléphone/);
+  await expect(page.getByLabel('Le problème concret constaté', { exact: true })).toHaveValue(/Le menu recouvre le numéro de téléphone/);
   await page.getByLabel('Motif des points maximum', { exact: true }).selectOption('blocking');
   await page.getByLabel('Pourquoi ce blocage est-il important ?', { exact: true }).fill('Sur mobile, le menu empêche de lire le numéro nécessaire pour prendre contact.');
 
@@ -206,9 +206,9 @@ test('brouillon positif incomplet conservé sans score définitif et sans zéro 
   await page.reload();
   await openQualificationCriterion(page, 'problem');
   await expect(page.getByTestId('qualification-question-problem').getByRole('radio', { name: 'Un problème concret vérifié', exact: true })).toBeChecked();
-  await expect(page.getByLabel('Le problème concret observé', { exact: true })).toHaveValue('');
-  await page.getByLabel('Le problème concret observé', { exact: true }).fill('Le détail de la prestation ne précise pas la zone d’intervention.');
-  await page.getByLabel('Date d’observation du problème', { exact: true }).fill(parisDate());
+  await expect(page.getByLabel('Le problème concret constaté', { exact: true })).toHaveValue('');
+  await page.getByLabel('Le problème concret constaté', { exact: true }).fill('Le détail de la prestation ne précise pas la zone d’intervention.');
+  await page.getByLabel('Date du constat', { exact: true }).fill(parisDate());
   await saveQualification(page, request, id);
   await expect(summary).toContainText('35/100');
   await expect(summary).toContainText('4/5 critères renseignés');
@@ -250,12 +250,12 @@ test('après échange : budget inconnu permis, passage manuel et opposition bloq
   await page.locator('summary').filter({ hasText: 'Archivage et opposition' }).click();
   await page.getByRole('button', { name: 'Marquer Ne plus contacter', exact: true }).click();
   await expect(page.getByTestId('qualification-summary')).toContainText('Ne plus contacter');
-  await page.getByRole('button', { name: 'Examiner et qualifier', exact: true }).click();
+  await page.getByRole('button', { name: 'Qualifier', exact: true }).click();
   await page.getByRole('combobox', { name: 'Espace de travail', exact: true }).selectOption('exchange');
   await expect(page.getByTestId('after-exchange-form')).toContainText('Qualification bloquée');
   await expect(page.getByRole('button', { name: 'Passer à Opportunité qualifiée', exact: true })).toHaveCount(0);
   await openCompanyContacts(page);
-  await page.locator('summary').filter({ hasText: 'Informations et étape de l’entreprise' }).click();
+  await page.locator('summary').filter({ hasText: 'Informations et étape du prospect' }).click();
   await page.getByLabel('Étape commerciale', { exact: true }).selectOption('Opportunité qualifiée');
   await page.getByRole('button', { name: 'Enregistrer la fiche', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Les conditions après échange doivent être confirmées avant de qualifier cette opportunité.' })).toBeVisible();

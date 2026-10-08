@@ -126,7 +126,7 @@
   .today-row:nth-of-type(3n) .company-monogram { background: var(--peach-soft); color: var(--peach-ink); }
   .target-card { background: var(--surface); border-color: var(--line); }
   .target-card h2 { background: linear-gradient(transparent 84%, var(--peach-soft) 84%); display: inline; }
-  .target-card p, .gentle-guide p, .gentle-guide ul, .slow-note { font-size: 16px; color: var(--muted); }
+  .target-card p, .gentle-guide p, .gentle-guide ul { font-size: 16px; color: var(--muted); }
   .aside-label { font-size: 12px; }
   .target-rule { background: var(--line); }
   .today-next-action { padding: 30px; background: var(--dark); color: var(--cream); border-radius: var(--radius); position: relative; margin-bottom: 24px; }

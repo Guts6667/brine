@@ -48,10 +48,10 @@ test.describe('accès privé', () => {
 
     const companyName = 'Brine — accès privé navigateur';
     await page.goto('/prospects');
-    await page.getByRole('button', { name: 'Ajouter une entreprise', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Ajouter un prospect', exact: true }).first().click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Nom de l’entreprise', { exact: false }).fill(companyName);
-    await dialog.getByRole('button', { name: 'Créer l’entreprise', exact: true }).click();
+    await dialog.getByLabel('Nom du prospect', { exact: false }).fill(companyName);
+    await dialog.getByRole('button', { name: 'Créer le prospect', exact: true }).click();
     await expect(page).toHaveURL(/\/prospects\/[^/?]+\?created=1(?:&campagne=[^&]+)?$/);
     await expect(page.getByRole('heading', { name: companyName, exact: true })).toBeVisible();
     const companyId = new URL(page.url()).pathname.split('/').at(-1)!;
