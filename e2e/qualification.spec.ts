@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { openCompanyInformation, openCompanyContacts, openQualificationCriterion } from './qualification-helpers';
+import { openCompanyInformation, openCompanyContacts, openQualificationCriterion, openQualificationReview, openQualificationEvidence } from './qualification-helpers';
 import type { Backup, Company } from '../lib/types';
 
 async function backup(request: APIRequestContext): Promise<Backup> {
@@ -39,6 +39,7 @@ async function choose(page: Page, criterion: string, label: string) {
 async function saveQualification(page: Page, request: APIRequestContext, id: string) {
   const form = page.getByTestId('qualification-form');
   const input = JSON.parse(await form.locator('input[name="payload"]').inputValue());
+  await openQualificationReview(page);
   await form.getByRole('button', { name: 'Enregistrer la qualification', exact: true }).click();
   await expect(form.getByRole('status').filter({ hasText: /Qualification enregistrée|Brouillon enregistré/ })).toBeVisible();
   await expect.poll(async () => (await savedCompany(request, id)).qualification!.answers).toEqual(input.answers);
@@ -52,7 +53,7 @@ async function saveContact(page: Page, request: APIRequestContext, id: string, e
 }
 
 async function fillObservation(page: Page, key: string, answer: string, notes?: string, source?: string) {
-  await page.getByRole('tab',{name:'Qualifier',exact:true}).click();await page.getByRole('combobox',{name:'Constat à vérifier · 9',exact:true}).selectOption(key);const row = page.getByTestId(`observation-${key}`);
+  await openQualificationEvidence(page);await page.getByRole('combobox',{name:'Constat à vérifier · 9',exact:true}).selectOption(key);const row = page.getByTestId(`observation-${key}`);
   await row.getByRole('combobox').first().selectOption(answer);
   if (notes || source) {
     await row.locator('summary').click();
@@ -114,7 +115,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await expect(summary).toContainText('0/100');
   await page.getByRole('tab',{name:'Qualifier',exact:true}).click();
   for (const criterion of ['fit', 'problem', 'trigger', 'references', 'access']) {
-    await page.getByRole('combobox',{name:'Critère à vérifier · 5',exact:true}).selectOption(criterion);
+    await openQualificationCriterion(page,criterion);
     await expect(page.getByTestId(`qualification-question-${criterion}`).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();
   }
 
@@ -167,7 +168,7 @@ test('observations sans points automatiques, qualification manuelle 80/100 et re
   await page.goto('/prospects?filter=ready');
   await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
   await page.goto('/campagnes/initial');
-  await page.getByText('Ma cible et spécialisation de campagne',{exact:true}).click();
+  await page.getByRole('link',{name:'Modifier',exact:true}).click();
   await page.getByLabel('Commune', { exact: true }).fill('Sète — cible E2E modifiée');
   await page.getByRole('button', { name: 'Enregistrer la campagne', exact: true }).click();
   await expect.poll(async () => (await backup(request)).campaignData!.campaigns.find(c=>c.id==='initial')!.targetCity).toBe('Sète — cible E2E modifiée');
@@ -218,6 +219,14 @@ test('brouillon positif incomplet conservé sans score définitif et sans zéro 
   await expect(page.getByLabel('Le problème concret constaté', { exact: true })).toHaveValue('');
   await page.getByLabel('Le problème concret constaté', { exact: true }).fill('Le détail de la prestation ne précise pas la zone d’intervention.');
   await page.getByLabel('Date du constat', { exact: true }).fill(parisDate());
+  const proof=page.getByLabel('Lien de preuve du problème (facultatif)',{exact:true});
+  await proof.fill('adresse-invalide');
+  await openQualificationReview(page);
+  await page.getByTestId('qualification-form').getByRole('button',{name:'Enregistrer la qualification',exact:true}).click();
+  await expect(page.getByTestId('qualification-form').getByRole('alert')).toContainText('Vérifiez les champs indiqués.');
+  await expect(page.getByTestId('qualification-question-problem')).toBeVisible();
+  await expect(proof).toBeFocused();
+  await proof.fill('https://qualification.example/preuve');
   await saveQualification(page, request, id);
   await expect(summary).toContainText('35/100');
   await expect(summary).toContainText('4/5 critères renseignés');

@@ -1,6 +1,6 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 import type { Backup } from '../lib/types';
-import { openFactSection, openContactChoices, confirmFact } from './report-helpers';
+import { openFactSection, openContactChoices, confirmFact, saveCandidateQualification } from './report-helpers';
 
 async function backup(request: APIRequestContext): Promise<Backup> {
   const response = await request.get('/api/backup');
@@ -71,7 +71,7 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     expect(social.company.siren).toBe(''); expect(social.website).toBe('');
     await page.goto(`/campagnes/lots/${runId}?candidat=${social.id}`);
     await expect(page.getByRole('heading', { name: 'Atelier Social Démo', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+    await page.locator('details.review-complete-dossier > summary').click();await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
     const dossier = page.getByTestId('prospect-report');
     await openFactSection(page, 'social-fact-0');
     for (let index = 0; index < 12; index++) { await openFactSection(page, `social-fact-${index}`); await expect(dossier.locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible(); }
@@ -79,8 +79,10 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     await dossier.getByRole('heading', { name: 'Analyse du site', exact: true }).click();
     await expect(dossier.getByText('Aucun site identifié ; aucun audit de site réalisé.', { exact: true })).toBeVisible();
     await confirmFact(page,'social-fact-8');await dossier.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
-    await openContactChoices(page);
+    await saveCandidateQualification(page);
+  await openContactChoices(page);
     await page.getByRole('checkbox', { name: /04 00 00 01 23/ }).check();
+
     await page.getByRole('button', { name: 'Valider le prospect', exact: true }).click();
     await expect.poll(async()=>(await backup(request)).campaignData!.candidates.find(c=>c.id===social.id)!.status).toBe('accepted');
     const accepted = await backup(request), company = accepted.companies.find(company => company.name === 'Atelier Social Démo')!;
@@ -92,14 +94,17 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     await page.getByRole('button', { name: 'Proposer un plan pour ce constat', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Nouvelle proposition enregistrée.' })).toBeVisible();
+    await page.getByText('Relire ou modifier les formulations', { exact: true }).click();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue('Le profil présente des exemples de réalisations.');
+    await page.getByText('Confirmer la cible et le canal professionnel', { exact: true }).click();
     await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
     await page.getByRole('button', { name: 'Valider et préparer mes textes', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Plan et brouillons enregistrés.' })).toBeVisible();
-    await page.getByRole('button', { name: 'Email', exact: true }).click();
+    await page.getByRole('button', { name: 'Relire le message', exact: true }).click();
+    await page.getByLabel('Format du message', { exact: true }).selectOption('email');
     await expect(page.getByLabel('Email à relire', { exact: true })).toHaveValue(/Rayan, développeur indépendant/);
     const emailText = await page.getByLabel('Email à relire', { exact: true }).inputValue();
     expect((emailText.match(/\?/g) || []).length).toBe(1);
@@ -111,15 +116,16 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     expect(savedParticipation.drafts!.filter(draft => draft.channel === 'email')).toHaveLength(2);
     expect(savedParticipation.drafts!.find(draft => draft.channel === 'email' && draft.version === 2)!.text).toContain('Merci de votre retour.');
     expect(savedParticipation.contactEvents || []).toHaveLength(0);
-    await page.getByRole('button', { name: 'Appel', exact: true }).click();
+    await page.getByLabel('Format du message', { exact: true }).selectOption('call');
     await expect(page.getByLabel('Trame d’appel', { exact: true })).toHaveValue(/Écouter|Laisser la personne répondre/);
+    await page.getByRole('button', { name: 'Contacter', exact: true }).click();
     await page.getByRole('button', { name: 'Question suivante', exact: true }).click();
     await expect(page.getByRole('heading',{name:'Motif et interlocuteur',exact:true})).toBeVisible();
     await page.getByRole('button', { name: 'Question suivante', exact: true }).click();
     await expect(page.getByText('Comprendre le fonctionnement avant de proposer une solution.', { exact: true })).toBeVisible();
     await page.getByLabel('Adapter à sa réponse', { exact: true }).selectOption('taken');
     await expect(page.getByRole('status').filter({ hasText: 'clôturer' })).toBeVisible();
-    await page.getByRole('button', { name: 'Résultat et suivi', exact: true }).click();
+    await page.getByRole('button', { name: 'Enregistrer le résultat', exact: true }).click();
     await page.getByLabel('Canal utilisé', { exact: true }).selectOption('phone');
     await page.getByLabel('Résultat du contact', { exact: true }).selectOption('no_response');
     await page.getByLabel('Note et propos réellement exprimés', { exact: true }).fill('Tentative sans réponse ; aucun besoin supposé.');
@@ -144,7 +150,8 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     await page.setViewportSize({ width: 390, height: 844 });
     const preparationUrl = `/campagnes/${campaignId}?etape=preparer&prospect=${company.id}`;
     await page.goto(preparationUrl);
-    await page.getByRole('button', { name: 'Email', exact: true }).click();
+    await page.getByRole('button', { name: 'Relire le message', exact: true }).click();
+    await page.getByLabel('Format du message', { exact: true }).selectOption('email');
     await expect(page.getByLabel('Email à relire', { exact: true })).toHaveValue(/Merci de votre retour\./);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     const mobileDraft = await page.getByLabel('Email à relire', { exact: true }).inputValue() + '\nBrouillon de reprise mobile.';
@@ -153,7 +160,7 @@ test('V2 — dossier intégral, professionnel social sans site, préparation et 
     await page.goto(preparationUrl);
     await expect(page.getByLabel('Email à relire', { exact: true })).toHaveValue(mobileDraft);
     await page.screenshot({ path: 'test-results/v2-preparation-mobile.png', fullPage: true });
-    await page.getByRole('button', { name: 'Résultat et suivi', exact: true }).click();
+    await page.getByRole('button', { name: 'Enregistrer le résultat', exact: true }).click();
     await expect(page.getByLabel('Date de réalisation', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await page.reload();
@@ -173,17 +180,20 @@ test('V2 — revue mobile 390 px, tous les constats et reprise sans débordement
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/campagnes/lots/${runId}?candidat=${social.id}`);
     await expect(page.getByRole('heading', { name: 'Atelier Social Démo', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+    await page.locator('details.review-complete-dossier > summary').click();await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
     await openFactSection(page, 'social-fact-0');
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     for (let index = 0; index < 12; index++) { await openFactSection(page, `social-fact-${index}`); await expect(page.getByTestId('prospect-report').locator(`[data-fact-id="social-fact-${index}"]`)).toBeVisible(); }
+    await saveCandidateQualification(page);
     await page.locator('.review-decisions').scrollIntoViewIfNeeded();
     const commands = await page.locator('.review-decisions').boundingBox();
     expect(commands).toBeTruthy(); expect(commands!.y).toBeGreaterThanOrEqual(0);
     expect(commands!.y + commands!.height).toBeLessThanOrEqual(844);
     await page.screenshot({ path: 'test-results/v2-review-mobile.png', fullPage: true });
     await page.goto('/');
-    await expect(page.locator('.preparation-waiting').filter({ hasText: 'V2 — mobile' }).getByRole('link', { name: 'Qualifier →', exact: true })).toBeVisible();
+    const reminder = page.locator('.today-preparation-reminder');
+    await expect(reminder).toContainText('À qualifier et préparer');
+    await expect(reminder.getByRole('link', { name: 'Voir', exact: true })).toHaveAttribute('href', `/campagnes/lots/${runId}`);
     await page.goto(`/campagnes/${campaignId}`);
     await page.getByRole('navigation', { name: 'Votre parcours', exact: true }).getByRole('link', { name: /Qualifier$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/campagnes/${campaignId}/qualification`));

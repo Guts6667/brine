@@ -17,12 +17,14 @@ export function SiteQualificationWorkspace({report,website,candidateId,revision,
   const [proofOpen,setProofOpen]=useState(false);
   const workRef=useRef<HTMLElement>(null);
   const proofRef=useRef<HTMLElement>(null);
+  const evidenceRef=useRef<HTMLDetailsElement>(null);
   const safeWebsite=isPublicVisualUrl(website)?website:'';
   const fact=report.facts.find(item=>item.id===selected);
   const visual=fact?.visual;
   const image=visual?.assetId?'/api/research-assets/'+visual.assetId:visual?.screenshot;
 
   function openProof(findingId:string) {
+    if(evidenceRef.current)evidenceRef.current.open=true;
     setSelected(findingId);
     setMode('capture');
     setProofOpen(true);
@@ -35,6 +37,11 @@ export function SiteQualificationWorkspace({report,website,candidateId,revision,
   }
 
   return <ProofViewerProvider openProof={openProof}><div className="site-qualification-shell">
+    <section ref={workRef} tabIndex={-1} className="qualification-active-work" aria-label="Travail de qualification">
+      <div className="qualification-work-section">{qualification}</div>
+    </section>
+    <details ref={evidenceRef} className="qualification-evidence mt-5 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-4" id="qualification-evidence">
+      <summary className="cursor-pointer font-medium">Dossier et preuves · 9 constats détaillés</summary>
     <details className="qualification-viewer" open={proofOpen} onToggle={event=>setProofOpen(event.currentTarget.open)}>
       <summary>Consulter le site et les {UI_LABELS.evidence.proofs.toLocaleLowerCase('fr')}</summary>
       <div className="qualification-viewer-body">
@@ -44,11 +51,9 @@ export function SiteQualificationWorkspace({report,website,candidateId,revision,
       </div>
     </details>
     {proofOpen&&fact&&<section ref={proofRef} tabIndex={-1} className="qualification-proof-detail"><button className="button secondary" onClick={returnToWork}>Revenir au {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')}</button><FindingReview fact={fact} report={report} candidateId={candidateId} revision={revision} hideVisual readOnly={!candidateId}/></section>}
-    <section ref={workRef} tabIndex={-1} className="qualification-active-work" aria-label="Travail de qualification">
       <div className="qualification-work-section">{observations}</div>
-      <div className="qualification-work-section">{qualification}</div>
+    </details>
       {contactEditor&&<section className="qualification-work-section" aria-labelledby="candidate-contact-heading"><h2 id="candidate-contact-heading">Coordonnées</h2>{contactEditor}</section>}
-      {afterExchange&&<section className="qualification-work-section" aria-labelledby="candidate-exchange-heading"><h2 id="candidate-exchange-heading">Après l’échange</h2>{afterExchange}</section>}
-    </section>
+      {afterExchange&&<details className="qualification-after-exchange mt-5"><summary className="cursor-pointer">Après l’échange · facultatif</summary><section className="qualification-work-section" aria-label="Après l’échange">{afterExchange}</section></details>}
   </div></ProofViewerProvider>;
 }

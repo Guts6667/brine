@@ -67,6 +67,35 @@ for(const kind of ['local','cloud'] as const){
   const redundant=await f.repo.createRun(campaign.id,10,randomUUID());await finishRun(f.repo,claim2,epoch);const redundantClaim=(await f.repo.claimRun(redundant.id,'third',epoch))!;await populateRun(f.repo,redundantClaim,epoch,providers);assert.equal((await f.repo.listCandidates(redundant.id)).length,0);
   assert.equal((await f.repo.knownRegistryCompany(campaign.id,company.siren))?.inCampaign,true);
  }finally{f.close();}});
+ test(`${kind}: quick email survives later review, transfers once, and preserves other contacts`,async()=>{const f=await fixture(kind);try{
+  await f.repo.bootstrap();const campaign=await f.repo.saveCampaign(target),run=await f.repo.createRun(campaign.id,10,randomUUID()),epoch=await f.repo.epoch(),claimed=(await f.repo.claimRun(run.id,'email-worker',epoch))!;
+  await populateRun(f.repo,claimed,epoch,providers);
+  const discovered=(await f.repo.listCandidates(run.id))[0];await processCandidate(f.repo,claimed,discovered.id,epoch,providers);
+  const candidate=await f.repo.getCandidate(discovered.id);
+  const entered=await f.repo.saveCandidateEmail(candidate.id,candidate.revision,'  manuel@atelier.test ');
+  assert.equal(entered.manualEmail,'manuel@atelier.test');
+  await assert.rejects(f.repo.saveCandidateEmail(candidate.id,candidate.revision,'stale@atelier.test'),/changé/);
+  await assert.rejects(f.repo.saveCandidateEmail(entered.id,entered.revision,'pas-un-email'),/email valide/);
+  await f.repo.reviewCandidate(entered.id,entered.revision,'verify',[],[],'');
+  const later=await f.repo.getCandidate(entered.id);assert.equal(later.manualEmail,'manuel@atelier.test');
+  assert.equal((await f.repo.getQualificationContext(later.id)).company.contact.email,'manuel@atelier.test');
+  const id=(await f.repo.reviewCandidate(later.id,later.revision,'accept',[],[0],''))!;
+  const prospect=await f.repo.getCompany(campaign.id,id);assert.equal(prospect.contact.email,'manuel@atelier.test');
+  const withPhone=details(prospect);withPhone.contact.phone='04 00 00 00 00';withPhone.contact.name='Camille';
+  await f.repo.updateCompany(campaign.id,id,withPhone,prospect.participationRevision,prospect.updatedAt);
+  const before=await f.repo.getCompany(campaign.id,id);
+  await f.repo.saveCompanyEmail(campaign.id,id,'nouveau@atelier.test',before.participationRevision,before.updatedAt);
+  const after=await f.repo.getCompany(campaign.id,id);assert.equal(after.contact.email,'nouveau@atelier.test');assert.equal(after.contact.phone,'04 00 00 00 00');assert.equal(after.contact.name,'Camille');
+  await assert.rejects(f.repo.saveCompanyEmail(campaign.id,id,'ancien@atelier.test',before.participationRevision,before.updatedAt),/changé/);
+  assert.equal((await f.repo.getCompany(campaign.id,id)).contact.email,'nouveau@atelier.test');
+  await finishRun(f.repo,claimed,epoch);
+  const otherCampaign=await f.repo.saveCampaign({...target,name:'Autre offre email'}),otherRun=await f.repo.createRun(otherCampaign.id,10,randomUUID()),otherClaim=(await f.repo.claimRun(otherRun.id,'other-email-worker',epoch))!;
+  await populateRun(f.repo,otherClaim,epoch,{...providers,html:async website=>({...await providers.html(website),contacts:[]})});
+  const otherCandidate=(await f.repo.listCandidates(otherRun.id))[0];
+  const otherEmail=await f.repo.saveCandidateEmail(otherCandidate.id,otherCandidate.revision,'candidat@autre.test');
+  const sameId=await f.repo.reviewCandidate(otherEmail.id,otherEmail.revision,'accept',[],[],'');
+  assert.equal(sameId,id);assert.equal((await f.repo.getCompany(otherCampaign.id,id)).contact.email,'nouveau@atelier.test');
+ }finally{f.close();}});
  test(`${kind}: independent workers claim one global batch and failed writes roll back`,async()=>{const f=await fixture(kind),other=new CampaignRepository(createClient({url:`file:${f.path}`}));try{
   await f.repo.bootstrap();const c=await f.repo.saveCampaign(target),epoch=await f.repo.epoch(),a=await f.repo.createRun(c.id,10,randomUUID()),b=await f.repo.createRun(c.id,10,randomUUID());
   const claims=await Promise.all([f.repo.claimRun(a.id,'worker-a',epoch),other.claimRun(b.id,'worker-b',epoch)]);assert.equal(claims.filter(Boolean).length,1);

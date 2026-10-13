@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { openCompanyInformation, openCompanyContacts, openQualificationCriterion } from './qualification-helpers';
+import { openCompanyInformation, openCompanyContacts, openQualificationCriterion, openQualificationReview } from './qualification-helpers';
 import type { Backup } from '../lib/types';
 
 const questions = [
@@ -35,6 +35,7 @@ async function answer(page: Page, index: number, value: string) {
 
 async function saveQualification(page: Page) {
   const form = page.getByTestId('qualification-form');
+  await openQualificationReview(page);
   await form.getByRole('button', { name: 'Enregistrer la qualification', exact: true }).click();
   await expect(form.getByRole('status').filter({ hasText: /Qualification enregistrée|Brouillon enregistré/ })).toBeVisible();
 }
@@ -76,7 +77,7 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   expect(saved).toMatchObject({ city: '', business: '', targetFit: 'unknown', problemFound: 'unknown', contactAvailable: 'unknown', stage: 'À étudier' });
   await expect(page.getByTestId('qualification-summary')).toContainText('0/100');
   await page.getByRole('tab',{name:'Qualifier',exact:true}).click();
-  for (const question of questions) {await page.getByRole('combobox',{name:'Critère à vérifier · 5',exact:true}).selectOption(['fit','problem','trigger','references','access'][questions.indexOf(question)]);await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();}
+  for (const [index,question] of questions.entries()) {await openQualificationCriterion(page,['fit','problem','trigger','references','access'][index]);await expect(page.getByRole('group', { name: question, exact: true }).getByRole('radio', { name: 'À vérifier', exact: true })).toBeChecked();}
 
   await openCompanyContacts(page);
   await page.getByLabel('Email professionnel', { exact: true }).fill('bonjour@atelier-du-lez.example');
@@ -132,16 +133,16 @@ test('nom seul, qualification recalculée et action planifiée, reportée puis t
   await planAction(page, 'Appeler pour présenter le constat', dateInParis(-1));
   await page.goto('/');
   await expect(page.getByText(name, { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /En retard/ })).toBeVisible();
+  await expect(page.locator('.today-row').filter({ hasText: name }).getByText('En retard', { exact: true })).toBeVisible();
 
   await page.goto('/');
   await page.getByRole('button', { name: 'Reporter', exact: true }).click();
   const reportDialog = page.getByRole('dialog');
   await reportDialog.getByLabel('Nouvelle date', { exact: true }).fill(dateInParis());
   await reportDialog.getByRole('button', { name: 'Confirmer le report', exact: true }).click();
-  // Moving the action from overdue to today remounts its row and closes the dialog.
   await expect.poll(async () => (await backup(request)).companies.find(company => company.id === id)!.nextAction!.date).toBe(dateInParis());
-  await expect(reportDialog).not.toBeVisible();
+  await expect(reportDialog.getByRole('status')).toContainText('Action reportée.');
+  await reportDialog.getByRole('button', { name: 'Fermer', exact: true }).click();
   expect((await backup(request)).companies.find(company => company.id === id)!.nextAction!.date).toBe(dateInParis());
 
   await page.goto('/');

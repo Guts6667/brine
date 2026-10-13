@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import type { Backup } from '../lib/types';
 import { emptyLearningProgress } from '../lib/learning-schema';
+import { parisToday } from '../lib/domain';
 
 const read = async (request: APIRequestContext): Promise<Backup> => (await request.get('/api/backup')).json();
 function stable({ exportedAt: _time, ...data }: Backup) { return data; }
@@ -44,6 +45,49 @@ for (const width of [1280, 390]) test(`le design reste clair, tactile et utilisa
   expect(stable(await read(request))).toEqual(stable(before));
 });
 
+test('les filtres et la recherche des prospects sont partageables sans alias hérités', async ({ page }) => {
+  await page.goto('/prospects?campagne=initial&filter=archived&q=Atelier');
+  await expect(page.getByRole('searchbox', { name: 'Rechercher un prospect', exact: true })).toHaveValue('Atelier');
+  await expect(page.getByText('Filtre : Archivées', { exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Filtrer les prospects', exact: true }).getByRole('link')).toHaveCount(5);
+  await expect(page.locator('.more-filters .filter-menu a')).toHaveCount(8);
+  const filters = await page.locator('.prospects-panel a[href*="filter="]').evaluateAll(links => links.map(link => new URL((link as HTMLAnchorElement).href).searchParams.get('filter')));
+  expect(new Set(filters)).toEqual(new Set(['all','verify','ready','high','contact','outside','opposed','evaluated','exchange','qualified','won','lost','archived']));
+});
+
+test('le hero et cinq actions prioritaires tiennent dans le premier écran', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const baseline = await read(request);
+  try {
+    for (let index = 0; index < 5; index++) {
+      await page.goto('/prospects');
+      await page.getByRole('button', { name: 'Ajouter un prospect', exact: true }).first().click();
+      let dialog = page.getByRole('dialog');
+      await dialog.getByLabel('Nom du prospect', { exact: false }).fill(`Atelier priorité ${index + 1}`);
+      await dialog.getByRole('button', { name: 'Créer le prospect', exact: true }).click();
+      await expect(page).toHaveURL(/\/prospects\//);
+      await page.getByRole('tab', { name: 'Contacter', exact: true }).click();
+      await page.getByRole('button', { name: 'Prévoir la suite', exact: true }).first().click();
+      dialog = page.getByRole('dialog');
+      await dialog.getByLabel(/^Action(?:\s|$)/).fill(`Relancer la priorité ${index + 1}`);
+      await dialog.getByLabel('Date de l’action', { exact: true }).fill(index < 3 ? `2000-01-0${index + 1}` : parisToday());
+      await dialog.getByRole('button', { name: 'Enregistrer l’action', exact: true }).click();
+      await expect(dialog.getByRole('status')).toContainText('Prochaine action enregistrée.');
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/');
+    await expect(page.getByRole('region', { name: 'Votre prochaine action' })).toBeVisible();
+    await expect(page.locator('.today-program-list')).toHaveCount(1);
+    const rows = page.locator('.today-program-list > .today-row');
+    await expect(rows).toHaveCount(5);
+    expect(await rows.locator('.today-row-category').allTextContents()).toEqual(['En retard', 'En retard', 'En retard', 'Aujourd’hui', 'Aujourd’hui']);
+    const fifth = await rows.nth(4).boundingBox();
+    expect(fifth!.y + fifth!.height).toBeLessThanOrEqual(800);
+    await expect(page.locator('.today-aside')).toHaveCount(0);
+    await expect(page.getByText('Voir les rubriques sans action', { exact: true })).toHaveCount(0);
+  } finally { await restore(page, baseline); }
+});
+
 test('la prochaine action reprend une action réellement prévue sans créer de contact ni la terminer', async ({ page, request }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const baseline = await read(request);
@@ -74,6 +118,9 @@ test('la prochaine action reprend une action réellement prévue sans créer de 
     await page.goto('/campagnes/initial/qualification?filtre=accepted');
     const search = page.getByRole('searchbox', { name: 'Rechercher une entreprise', exact: true });
     await search.fill('Atelier Papier');
+    await expect.poll(() => ({ filtre: new URL(page.url()).searchParams.get('filtre'), q: new URL(page.url()).searchParams.get('q') })).toEqual({ filtre: 'accepted', q: 'Atelier Papier' });
+    await page.reload();
+    await expect(search).toHaveValue('Atelier Papier');
     await search.evaluate(el => el.setAttribute('data-preserved-draft', 'yes'));
     const guide = page.getByRole('complementary', { name: 'Guide de campagne' });
     const open = guide.getByRole('button', { name: 'Me guider', exact: true });

@@ -2,8 +2,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { Backup } from '../lib/types';
-import { openQualificationCriterion, openCompanyContacts } from './qualification-helpers';
-import { confirmFact, openContactChoices, openFactSection } from './report-helpers';
+import { openQualificationCriterion, openQualificationReview, openCompanyContacts } from './qualification-helpers';
+import { confirmFact, openContactChoices, openFactSection, saveCandidateQualification } from './report-helpers';
 
 // playwright.config.ts starts the server after e2e/reset-database.mjs has cleared
 // only test-results/e2e/brine.sqlite. This test restores the original backup too.
@@ -59,6 +59,7 @@ async function answer(page: Page, criterion: string, label: string) {
 
 async function saveQualification(page: Page) {
   const form = page.getByTestId('qualification-form');
+  await openQualificationReview(page);
   await form.getByRole('button', { name: 'Enregistrer la qualification', exact: true }).click();
   await expect(form.getByRole('status').filter({ hasText: /Qualification enregistrée|Brouillon enregistré/ })).toBeVisible();
 }
@@ -88,12 +89,14 @@ async function seed(page: Page, request: APIRequestContext) {
   expect(candidate).toBeTruthy();
 
   await page.goto(`/campagnes/lots/${runId}?candidat=${candidate!.id}`);
-  await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+  await page.locator('details.review-complete-dossier > summary').click();await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
   await confirmFact(page, 'quote404');
   await openFactSection(page, 'quote404');
   await page.getByTestId('prospect-report').locator('[data-fact-id="quote404"]').getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
+  await saveCandidateQualification(page);
   await openContactChoices(page);
   await page.getByRole('checkbox', { name: /contact@atelier-demo.test/ }).check();
+
   await page.getByRole('button', { name: 'Valider le prospect', exact: true }).click();
   const accepted = await backup(request);
   const qualified = accepted.companies.find(item => item.name === 'Atelier Démo — lot');
@@ -161,9 +164,12 @@ async function measure(page: Page): Promise<Omit<Measurement, 'page' | 'width' |
     const controlSelector = 'a[href], button, summary, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="tab"], [tabindex]:not([tabindex="-1"])';
     const controls = Array.from(document.querySelectorAll<HTMLElement>(controlSelector)).filter(element => visible(element) && !element.matches(':disabled, [aria-disabled="true"]'));
     const smallTargets: SmallTarget[] = controls.flatMap(element => {
-      const rect = element.getBoundingClientRect();
+      const labelledControl = element.matches('input[type="checkbox"], input[type="radio"]')
+        ? Array.from((element as HTMLInputElement).labels ?? []).find(label => visible(label))
+        : undefined;
+      const rect = (labelledControl ?? element).getBoundingClientRect();
       if (rect.width >= 44 && rect.height >= 44) return [];
-      return [{ selector: selector(element), label: (element.getAttribute('aria-label') || element.innerText || element.getAttribute('title') || element.getAttribute('name') || '').replace(/\s+/g, ' ').trim().slice(0, 100), width: Math.round(rect.width * 10) / 10, height: Math.round(rect.height * 10) / 10 }];
+      return [{ selector: selector(labelledControl ?? element), label: (element.getAttribute('aria-label') || labelledControl?.innerText || element.innerText || element.getAttribute('title') || element.getAttribute('name') || '').replace(/\s+/g, ' ').trim().slice(0, 100), width: Math.round(rect.width * 10) / 10, height: Math.round(rect.height * 10) / 10 }];
     });
     return {
       bodyScrollWidth: document.body.scrollWidth,
@@ -182,9 +188,9 @@ function markdown(rows: Measurement[]): string {
   const targets = rows.flatMap(row => row.smallTargets.map(item => ({ row, item })));
   const texts = rows.flatMap(row => row.smallText.map(item => ({ row, item })));
   const lines = [
-    '# Audit UX — baseline', '',
+    '# Audit UX — garde-fou', '',
     `Mesures : ${rows.length} vues, ${new Set(rows.map(row => row.page)).size} pages, largeurs ${widths.join(', ')} px. Hauteur du premier écran : ${viewportHeight} px.`,
-    'Les constats ci-dessous sont informatifs : ce test ne fixe aucun seuil bloquant.', '',
+    'Seuils bloquants : texte visible de 14 px minimum, cible interactive de 44 × 44 px minimum et aucun débordement horizontal.', '',
     '## Gravité élevée — débordements horizontaux', '',
     overflow.length ? '| Page | Largeur | Débordement | Capture |\n| --- | ---: | ---: | --- |' : 'Aucun débordement horizontal mesuré.',
     ...overflow.map(row => `| ${escape(row.page)} | ${row.width} px | ${Math.max(row.bodyScrollWidth, row.documentScrollWidth) - row.viewportWidth} px | [PNG](${row.screenshot}) |`),
@@ -202,7 +208,7 @@ function markdown(rows: Measurement[]): string {
   return lines.join('\n');
 }
 
-test('baseline UX des parcours de prospection', async ({ page, request }) => {
+test('garde-fou UX des parcours de prospection', async ({ page, request }) => {
   test.setTimeout(240_000);
   await mkdir(outputDirectory, { recursive: true });
   const baseline = await backup(request);
@@ -238,4 +244,14 @@ test('baseline UX des parcours de prospection', async ({ page, request }) => {
     await writeFile(path.join(outputDirectory, 'report.md'), markdown(results), 'utf8');
     await restore(page, baseline);
   }
+  const violations = {
+    horizontalOverflows: results.filter(row => Math.max(row.bodyScrollWidth, row.documentScrollWidth) > row.viewportWidth).length,
+    smallTargets: results.reduce((total, row) => total + row.smallTargets.length, 0),
+    smallTexts: results.reduce((total, row) => total + row.smallText.length, 0),
+  };
+  expect(violations, `Consultez ${path.join(outputDirectory, 'report.md')}`).toEqual({
+    horizontalOverflows: 0,
+    smallTargets: 0,
+    smallTexts: 0,
+  });
 });

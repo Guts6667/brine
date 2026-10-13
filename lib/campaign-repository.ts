@@ -338,11 +338,35 @@ export class CampaignRepository {
     if(membership&&candidate.companyId)company=this.project(await this.shared(tx,candidate.companyId),json<Participation>(membership.payload),campaign);
     else{
       const contact:Contact={name:'',role:'',email:'',phone:'',formUrl:'',profileUrl:''};for(const item of report.contacts)if(!contact[item.kind])contact[item.kind]=item.value;
+      if(candidate.manualEmail)contact.email=candidate.manualEmail;
       company={id:candidate.id,candidateId:candidate.id,name:candidate.company.name,website:candidate.website,city:candidate.company.city,business:candidate.company.business,targetFit:'unknown',problemFound:'unknown',contactAvailable:'unknown',observation:'',proofUrl:'',observedOn:'',trigger:'',stage:'À étudier',archived:false,oppositionActive:false,oppositionDate:'',oppositionNote:'',contact,nextAction:null,createdAt:run.createdAt,updatedAt:run.updatedAt,qualification:candidate.qualificationDraft||emptyQualification(),qualificationEnrichment:candidate.qualificationEnrichment,campaignId:campaign.id,campaignName:campaign.name,participationRevision:candidate.revision,approach:'',findingIds:[]};
     }
+    if(candidate.status!=='accepted'&&candidate.manualEmail&&!company.contact.email)company={...company,contact:{...company.contact,email:candidate.manualEmail}};
     return {candidate,campaign,company,report,suggestions:proposeQualification(report,campaign,company.qualificationEnrichment)};
   }
   getQualificationContext(id:string){return this.readTransaction(tx=>this.qualificationContextTx(tx,id));}
+  async saveCandidateEmail(id:string,revision:number,email:string){
+    const parsed=z.email('Renseignez une adresse email valide.').max(320).parse(email.trim());
+    await this.transaction(async tx=>{
+      const candidate=await this.getCandidateTx(tx,id);
+      if(candidate.revision!==revision)throw new Error('Ce résultat a changé. Rechargez la fiche.');
+      if(candidate.status==='accepted'&&candidate.companyId)throw new Error('Modifiez l’email sur la fiche prospect.');
+      candidate.manualEmail=parsed;
+      candidate.revision++;
+      await this.putCandidate(tx,candidate);
+    });
+    return this.getCandidate(id);
+  }
+  async saveCompanyEmail(campaignId:string,id:string,email:string,expected?:number,expectedSharedUpdatedAt?:string){
+    const parsed=z.email('Renseignez une adresse email valide.').max(320).parse(email.trim());
+    return this.mutate(campaignId,id,expected,async(p,c,_campaign,tx)=>{
+      if(expectedSharedUpdatedAt!==undefined&&expectedSharedUpdatedAt!==c.updatedAt)throw new Error('Les coordonnées ont changé. Rechargez la fiche.');
+      await tx.execute({sql:'UPDATE contacts SET email=? WHERE companyId=?',args:[parsed,id]});
+      await tx.execute({sql:'UPDATE companies SET updatedAt=? WHERE id=?',args:[new Date(Math.max(Date.now(),Date.parse(c.updatedAt)+1)).toISOString(),id]});
+      const memberships=await tx.execute({sql:'SELECT payload FROM campaign_participations WHERE companyId=?',args:[id]});
+      for(const row of memberships.rows){const membership=json<Participation>(row.payload);if(membership.readiness?.channelKind!=='email')continue;membership.readiness={...membership.readiness,channel:false};if(membership.campaignId===campaignId)p.readiness=membership.readiness;else{membership.revision++;membership.updatedAt=timestamp();await this.writeParticipation(tx,membership);}}
+    },'Email professionnel mis à jour. Vérifiez le canal avant de contacter.');
+  }
   async getQualificationContexts(ids:string[]){
     const contexts:Array<Awaited<ReturnType<CampaignRepository['getQualificationContext']>>>=[];
     // Turso limits simultaneous database connections. Keep the list bounded,
@@ -543,6 +567,7 @@ export class CampaignRepository {
       if(candidate.company.siren&&registryIdentity.rows.some(row=>row.siren!==candidate.company.siren))throw new Error('L’identité officielle contredit la fiche sélectionnée.');
       for(const source of sourceKeys){const prior=await tx.execute({sql:'SELECT companyId FROM company_source_identity WHERE provider = ? AND externalId = ?',args:[source.provider,source.externalId]});if(prior.rows.length&&prior.rows[0].companyId!==companyId)throw new Error('Une identité de source correspond à une autre entreprise.');}
       if(!shared.website&&candidate.website)await tx.execute({sql:'UPDATE companies SET website = ?, updatedAt = ? WHERE id = ?',args:[candidate.website,timestamp(),companyId]});
+      if(candidate.manualEmail&&!shared.contact.email)shared.contact.email=candidate.manualEmail;
       for(const i of [...new Set(contactIndexes)]){const contact=contacts[i];if(!shared.contact[contact.kind])shared.contact[contact.kind]=contact.value;}
       companyDetailsSchema.parse({...shared,contact:shared.contact});
       await tx.execute({sql:`UPDATE contacts SET ${contactKeys.map(k=>`"${k}" = ?`).join(', ')} WHERE companyId = ?`,args:[...contactKeys.map(k=>shared.contact[k]),companyId]});

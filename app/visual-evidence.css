@@ -6,5 +6,5 @@
 .visual-observation-body { padding: 0 18px 18px; }
 .visual-capture-preview { margin: 0; }
 .visual-capture-preview img, .visual-evidence-image { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; display: block; }
-.visual-capture-preview figcaption { font-size: 12px; line-height: 1.6; color: var(--muted); margin-top: 8px; }
+.visual-capture-preview figcaption { font-size: var(--text-sm); line-height: 1.6; color: var(--muted); margin-top: 8px; }
 @media print { .visual-evidence-image { max-height: 14cm; object-fit: contain; break-inside: avoid; } }

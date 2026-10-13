@@ -1,4 +1,18 @@
-import type { Page } from '@playwright/test';
+import {expect,type Page} from '@playwright/test';
+
+export async function saveCandidateQualification(page:Page){
+  const form=page.getByTestId('qualification-form');
+  if(!await form.locator('.qualification-wizard-review').isVisible()){
+    for(let step=0;step<5;step++){
+      if(await form.getByRole('button',{name:'Voir le récapitulatif',exact:true}).isVisible())break;
+      await form.getByRole('button',{name:'Suivant',exact:true}).click();
+    }
+    await form.getByRole('button',{name:'Voir le récapitulatif',exact:true}).click();
+  }
+  await expect(form.getByRole('region',{name:'Récapitulatif des cinq critères'})).toBeVisible();
+  await form.getByRole('button',{name:'Enregistrer la qualification',exact:true}).click();
+  await expect(form.getByRole('status').filter({hasText:/Qualification enregistrée|Brouillon enregistré/})).toBeVisible();
+}
 
 export async function confirmFact(page:Page,factId:string){
   const exact=page.locator(`[data-testid="qualification-finding"][data-fact-id="${factId}"]`).first();

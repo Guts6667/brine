@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
-import { confirmFact,openLegacyInsights } from './report-helpers';
+import { confirmFact,openLegacyInsights, saveCandidateQualification } from './report-helpers';
 import type { Backup } from '../lib/types';
 
 const observation = 'Dans ce jeu de test, un grand ovale sombre recouvre les photos des cartes Avant / après et masque une partie des réalisations.';
@@ -85,8 +85,10 @@ test('Qualifier — un constat visuel compréhensible mène au contact, le dossi
     const review = page.getByTestId('prospect-review');
     const dossier = page.getByTestId('prospect-report');
     const decision = review.getByRole('button', { name: 'Valider le prospect', exact: true });
+    await expect(decision).not.toBeVisible();
+    await saveCandidateQualification(page);
     await expect(decision).toBeVisible();
-    await expect(dossier.getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('details.review-complete-dossier > summary').click();await expect(dossier.getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
     await expect(dossier.getByRole('heading', { name: 'Preuves et méthode', exact: true })).not.toBeVisible();
     expect(await decision.evaluate(button => !!(button.compareDocumentPosition(document.querySelector('[data-testid="prospect-report"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     await dossier.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
@@ -151,10 +153,23 @@ test('Qualifier — un constat visuel compréhensible mène au contact, le dossi
 
     const preparationUrl = `/campagnes/${campaignId}?etape=preparer&prospect=${companyId}`;
     await page.goto(preparationUrl);
+    const contactSteps = page.getByRole('navigation', { name: 'Préparation du contact', exact: true });
+    await expect(contactSteps.getByText('Choisir la preuve', { exact: true })).toBeVisible();
+    await expect(contactSteps.getByText('Relire le message', { exact: true })).toBeVisible();
+    await expect(contactSteps.getByRole('button', { name: 'Relire le message', exact: true })).toHaveCount(0);
+    const workspace = page.locator('.contact-workspace');
+    await workspace.scrollIntoViewIfNeeded();
+    const firstViewportControls = await workspace.locator('a,button,input,select,textarea,summary').evaluateAll(elements => elements.filter(element => {
+      const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+      return element.checkVisibility() && box.width > 0 && box.height > 0 && box.top < innerHeight && box.bottom > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    }).map(element => `${element.tagName.toLowerCase()}:${element.getAttribute('aria-label')||element.textContent?.trim()||element.getAttribute('name')||''}`));
+    expect(firstViewportControls.length, firstViewportControls.join('\n')).toBeLessThanOrEqual(8);
     await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue(fact.id);
+    await page.getByText('Relire ou modifier les formulations', { exact: true }).click();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue(observation);
     await expect(page.getByLabel('Aide proportionnée', { exact: true })).toHaveValue(/corriger l’affichage de cet élément/);
     await expect(page.getByLabel('Aide proportionnée', { exact: true })).not.toHaveValue(/refonte/);
+    await page.getByText('Confirmer la cible et le canal professionnel', { exact: true }).click();
     await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
@@ -169,9 +184,10 @@ test('Qualifier — un constat visuel compréhensible mène au contact, le dossi
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByTestId('prospect-review').getByRole('link', { name: 'Contacter', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-    await expect(page.getByTestId('prospect-report').getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('details.review-complete-dossier > summary').click();await expect(page.getByTestId('prospect-report').getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
     await page.screenshot({ path: 'test-results/insights-review-mobile.png', fullPage: true });
     await page.goto(preparationUrl);
+    await page.getByText('Relire ou modifier les formulations', { exact: true }).click();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue(observation);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 
@@ -213,11 +229,12 @@ test('Qualifier — spécialisation facultative et profil personnalisé conserv�
     const { campaignId, runId, candidate, reviewUrl } = await launch(page, request, 'Interface — offre à préciser', false);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(reviewUrl);
+    await saveCandidateQualification(page);
     await expect(page.getByText('Précisez d’abord ce que vous proposez', { exact: true })).not.toBeVisible();
     await page.getByText('Spécialiser l’offre pour cette campagne (facultatif)',{exact:true}).click();
     await expect(page.getByLabel('Ce que je propose dans cette campagne', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Valider le prospect', exact: true })).toBeVisible();
-    await expect(page.getByTestId('prospect-report').getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('details.review-complete-dossier > summary').click();await expect(page.getByTestId('prospect-report').getByRole('button', { name: 'Voir le rapport complet', exact: true })).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('button', { name: 'Choisir ce constat', exact: true })).not.toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await page.getByLabel('Ce que je propose dans cette campagne', { exact: true }).fill('Sites web et correction ciblée des interfaces');
@@ -247,8 +264,10 @@ test('Qualifier — spécialisation facultative et profil personnalisé conserv�
     await expect(page).toHaveURL(/filtre=review/);
     const kept = await backup(request), companyId = kept.campaignData!.candidates.find(value => value.id === candidate.id)!.companyId!;
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${companyId}`);
+    await page.getByText('Renseigner mon activité avant de me présenter', { exact: true }).click();
     await expect(page.getByLabel('Votre nom', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Votre activité', { exact: true })).toBeVisible();
+    await page.getByText('Relire ou modifier les formulations', { exact: true }).click();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue('Le lien Demander un devis renvoie HTTP 404.');
     await expect(page.getByLabel('Motif', { exact: true })).toBeVisible();
     const optional = page.locator('details.profile-optional');
@@ -261,6 +280,7 @@ test('Qualifier — spécialisation facultative et profil personnalisé conserv�
     await expect(optional.getByLabel('Références réelles et liens', { exact: true })).toHaveValue(savedReference);
     await expect(optional.getByLabel('Prestations proposées', { exact: true })).toHaveValue('');
     await expect(optional.getByLabel('Prestations proposées', { exact: true })).not.toHaveAttribute('required');
+    await page.getByText('Confirmer la cible et le canal professionnel', { exact: true }).click();
     await expect(page.getByRole('button', { name: 'Valider et préparer mes textes', exact: true })).toBeDisabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await optional.locator(':scope > summary').click();

@@ -1,5 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { openFactSection, openContactChoices, confirmFact } from './report-helpers';
+import { openFactSection, openContactChoices, confirmFact, saveCandidateQualification } from './report-helpers';
 import type { Backup, Company } from '../lib/types';
 import type { DiscoveryCandidate } from '../lib/campaign-types';
 
@@ -53,11 +53,13 @@ async function launch(page: Page, request: APIRequestContext, name: string) {
 async function keep(page: Page, request: APIRequestContext, runId: string, candidate: DiscoveryCandidate, evidenceId: string, contact: string): Promise<Company> {
   await page.goto(`/campagnes/lots/${runId}?candidat=${candidate.id}`);
   await expect(page.getByRole('heading', { name: candidate.company.name, exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+  await page.locator('details.review-complete-dossier > summary').click();await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
   await confirmFact(page,evidenceId);await openFactSection(page, evidenceId);
   await page.locator(`[data-fact-id="${evidenceId}"]`).getByRole('button', { name: 'Utiliser pour mon approche', exact: true }).click();
+  await saveCandidateQualification(page);
   await openContactChoices(page);
   await page.getByRole('checkbox', { name: new RegExp(contact.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).check();
+
   await page.getByRole('button', { name: 'Valider le prospect', exact: true }).click();
   await expect(page).toHaveURL(/filtre=review/);
   await expect.poll(async () => (await backup(request)).campaignData!.candidates.find(item => item.id === candidate.id)?.status).toBe('accepted');
@@ -94,6 +96,7 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${companyA.id}`);
     await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     await proposePlan(page);
+    await page.getByText('Relire ou modifier les formulations', { exact: true }).click();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue('Le profil présente des exemples de réalisations.');
     const motive = 'J’ai consulté les exemples de réalisations publiés sur votre profil.', question = 'Comment présentez-vous vos réalisations aux personnes qui vous contactent ?';
     const hypothesis = 'Une page dédiée pourrait faciliter la consultation de vos réalisations, à confirmer avec vous.', help = 'Je peux proposer d’examiner la présentation de vos réalisations et le parcours de contact.', nextStep = 'Si cela vous paraît utile, convenir d’un court échange sur votre présentation actuelle.';
@@ -105,6 +108,7 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     await page.getByRole('button', { name: 'Enregistrer mes formulations', exact: true }).click();
     await expect.poll(async () => participation(await backup(request), campaignId, companyA.id).plan?.question).toBe(question);
     await page.reload();
+    await page.getByText('Relire ou modifier les formulations', { exact: true }).click();
     await expect(page.getByLabel('Motif', { exact: true })).toHaveValue(motive);
     await expect(page.getByLabel('Hypothèse à confirmer', { exact: true })).toHaveValue(hypothesis);
     await expect(page.getByLabel('Aide proportionnée', { exact: true })).toHaveValue(help);
@@ -116,6 +120,7 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     expect(saved.plan!.motive).toBe(motive);
     expect(saved.drafts || []).toHaveLength(0);
 
+    await page.getByText('Confirmer la cible et le canal professionnel', { exact: true }).click();
     await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
@@ -126,7 +131,7 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     expect(preparedA.plan!.motive).toBe(motive);
     expect(preparedA.plan!.question).toBe(question);
     expect(preparedA.drafts!.every(draft => draft.planId === preparedA.plan!.id)).toBe(true);
-    await page.getByRole('navigation', { name: 'Préparation du contact', exact: true }).getByRole('button', { name: 'Appel', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Préparation du contact', exact: true }).getByRole('button', { name: 'Contacter', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Copier pour contacter manuellement', exact: true }),await page.locator('.contact-workspace').innerText()).toBeEnabled();
     await expect(page.getByRole('link', { name: 'Composer le numéro professionnel', exact: true })).toBeVisible();
 
@@ -135,33 +140,34 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${companyB.id}`);
     await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('quote404');
     await proposePlan(page);
+    await page.getByText('Confirmer la cible et le canal professionnel', { exact: true }).click();
     await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('email');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
     await page.getByRole('button', { name: 'Valider et préparer mes textes', exact: true }).click();
     await expect.poll(async () => participation(await backup(request), campaignId, companyB.id).drafts?.length).toBe(2);
-    await page.getByRole('navigation', { name: 'Préparation du contact', exact: true }).getByRole('button', { name: 'Email', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Préparation du contact', exact: true }).getByRole('button', { name: 'Relire le message', exact: true }).click();
+    await page.getByLabel('Format du message', { exact: true }).selectOption('email');
     const emailText = page.getByLabel('Email à relire', { exact: true }), emailSubject = page.getByLabel('Objet factuel', { exact: true });
     const originalText = await emailText.inputValue(), originalSubject = await emailSubject.inputValue();
     const copy = page.getByRole('button', { name: 'Copier pour contacter manuellement', exact: true }), mail = page.getByRole('link', { name: 'Ouvrir dans mon logiciel email', exact: true });
+    await page.getByRole('button', { name: 'Contacter', exact: true }).click();
     await expect(copy).toBeEnabled();
     await expect(mail).toBeVisible();
+    await page.getByRole('button', { name: 'Relire le message', exact: true }).click();
     const editedText = originalText + '\n\nMerci de votre retour.', editedSubject = originalSubject + ' — point à vérifier';
     await emailText.fill(editedText);
-    await expect(copy).toBeDisabled();
-    await expect(mail).toHaveCount(0);
-    await emailText.fill(originalText);
-    await expect(copy).toBeEnabled();
-    await expect(mail).toBeVisible();
     await emailSubject.fill(editedSubject);
+    await page.getByRole('button', { name: 'Contacter', exact: true }).click();
     await expect(copy).toBeDisabled();
     await expect(mail).toHaveCount(0);
-    await emailText.fill(editedText);
+    await page.getByRole('button', { name: 'Relire le message', exact: true }).click();
     await page.getByRole('button', { name: 'Enregistrer cette version', exact: true }).click();
     await expect.poll(async () => participation(await backup(request), campaignId, companyB.id).drafts?.filter(draft => draft.channel === 'email').length).toBe(2);
     await expect(emailText).toHaveValue(editedText);
     await expect(emailSubject).toHaveValue(editedSubject);
+    await page.getByRole('button', { name: 'Contacter', exact: true }).click();
     await expect(copy).toBeEnabled();
     await expect(mail).toBeVisible();
     const recordedB = participation(await backup(request), campaignId, companyB.id), version = recordedB.drafts!.find(draft => draft.channel === 'email' && draft.version === 2)!;
@@ -170,8 +176,10 @@ test('V2 P1 — preuve admise, formulations persistantes et résultat isolé ent
     expect(mailUrl.protocol).toBe('mailto:');expect(mailUrl.pathname).toBe('contact@atelier-demo.test');
     expect(mailUrl.searchParams.get('subject')).toBe(editedSubject);expect(normalizeNewlines(mailUrl.searchParams.get('body')!)).toBe(editedText);
     await page.reload();
+    await page.getByRole('button', { name: 'Relire le message', exact: true }).click();
     await expect(emailText).toHaveValue(editedText);
     await expect(emailSubject).toHaveValue(editedSubject);
+    await page.getByRole('button', { name: 'Contacter', exact: true }).click();
     await expect(copy).toBeEnabled();
     await expect(mail).toBeVisible();
 
@@ -218,6 +226,7 @@ test('V2 P1 — reconfirmer une retenue conserve ses preuves et le retrait garde
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${company.id}`);
     await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     await proposePlan(page);
+    await page.getByText('Confirmer la cible et le canal professionnel', { exact: true }).click();
     await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
@@ -227,7 +236,7 @@ test('V2 P1 — reconfirmer une retenue conserve ses preuves et le retrait garde
     const before = participation(await backup(request), campaignId, company.id);
     await page.goto(`/campagnes/lots/${runId}?filtre=accepted&candidat=${social.id}`);
     await page.getByRole('button', { name: 'Modifier mes choix', exact: true }).click();
-    await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
+    await page.locator('details.review-complete-dossier > summary').click();await page.getByRole('button', { name: 'Voir le rapport complet', exact: true }).click();
     await openFactSection(page, 'social-fact-8');
     await expect(page.locator('[data-fact-id="social-fact-8"]').getByRole('button', { name: 'Constat sélectionné', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await openContactChoices(page);
@@ -291,11 +300,11 @@ test('V2 P1 — contacts réellement effectués sans préparation et opposition 
     expect(participation(data, campaignId, company.id).qualification.answers.fit.answer).toBe('unknown');
     expect(participation(data, campaignId, company.id).nextAction!.text).toBe('Rappel convenu pour la campagne A');
     await page.goto(`/campagnes/${campaignId}`);
-    await page.getByText('Gestion et prospects déjà connus', { exact: true }).click();
+    await page.getByText('Paramètres de la campagne', { exact: true }).click();
     await page.getByRole('button', { name: 'Dupliquer la configuration', exact: true }).click();
     await expect(page).not.toHaveURL(new RegExp(`/campagnes/${campaignId}$`));
     const secondCampaignId = new URL(page.url()).pathname.split('/').at(-1)!;
-    await page.getByText('Gestion et prospects déjà connus', { exact: true }).click();
+    await page.getByText('Paramètres de la campagne', { exact: true }).click();
     await page.getByLabel('Prospect déjà connu', { exact: true }).selectOption(company.id);
     await page.getByRole('button', { name: 'Rattacher à cette campagne', exact: true }).click();
     await expect.poll(async () => (await backup(request)).campaignData!.participations.some(item => item.companyId === company.id && item.campaignId === secondCampaignId)).toBe(true);
@@ -345,6 +354,7 @@ test('V2 P1 — deux réponses successives conservent le plan personnel et affic
     await page.goto(`/campagnes/${campaignId}?etape=preparer&prospect=${company.id}`);
     await expect(page.getByLabel('Constat principal', { exact: true })).toHaveValue('social-fact-8');
     await proposePlan(page);
+    await page.getByText('Relire ou modifier les formulations', { exact: true }).click();
     const personal = {
       motive: 'J’ai consulté vos exemples de réalisations sur votre profil public.',
       hypothesis: 'Une présentation dédiée pourrait faciliter leur consultation, à confirmer avec vous.',
@@ -357,13 +367,14 @@ test('V2 P1 — deux réponses successives conservent le plan personnel et affic
     }
     await page.getByRole('button', { name: 'Enregistrer mes formulations', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Vos formulations sont enregistrées.' })).toBeVisible();
+    await page.getByText('Confirmer la cible et le canal professionnel', { exact: true }).click();
     await page.getByRole('checkbox', { name: /Ce prospect correspond à ma cible/ }).check();
     await page.getByRole('checkbox', { name: /Ce motif est documenté/ }).check();
     await page.getByLabel('Canal professionnel choisi', { exact: true }).selectOption('phone');
     await page.getByRole('checkbox', { name: /J’ai vérifié ce contact professionnel/ }).check();
     await page.getByRole('button', { name: 'Valider et préparer mes textes', exact: true }).click();
     await expect.poll(async () => participation(await backup(request), campaignId, company.id).drafts?.length).toBe(2);
-    await page.getByRole('navigation', { name: 'Préparation du contact', exact: true }).getByRole('button', { name: 'Résultat et suivi', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Préparation du contact', exact: true }).getByRole('button', { name: 'Enregistrer le résultat', exact: true }).click();
     const notes = [
       'La personne souhaite montrer ses réalisations de cuisines lors du premier échange.',
       'La personne précise ensuite que sa priorité est la présentation de ses chantiers extérieurs.',

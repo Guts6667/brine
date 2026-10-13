@@ -74,14 +74,14 @@ for (const width of [1280,390]) test(`six modules, reprise et guide sans altéra
     await page.getByLabel('Reformulez le besoin et la suite en une ou deux phrases.',{exact:true}).fill('Vous souhaitez améliorer la lecture mobile de la galerie. Je vous envoie les deux pistes convenues.');await page.getByRole('checkbox',{name:/J’ai relu : ma reformulation/}).check();await complete(page);
     await page.goto('/apprendre');await expect(page.getByRole('progressbar',{name:'Modules terminés'})).toHaveAttribute('aria-valuenow','6');
     let after=await read(request);expect(after.campaignData!.learningProgress!.mission.recordedContact).toBe(false);expect(business(after)).toEqual(business(before));
-    await page.goto(`/campagnes/${campaignId}?etape=rechercher`);await page.getByText('Ma cible et spécialisation de campagne',{exact:true}).click();
+    await page.goto(`/campagnes/${campaignId}?etape=rechercher`);await page.getByRole('link',{name:'Modifier',exact:true}).click();
     const field=page.getByLabel('Mots clés de recherche',{exact:true});await field.fill('Mon brouillon non enregistré');await field.evaluate(el=>el.setAttribute('data-learning-preserved','yes'));
     const guide=page.getByRole('complementary',{name:'Guide de campagne'});const open=guide.getByRole('button',{name:'Me guider',exact:true});if(await open.isVisible())await open.click();
     await expect(guide.getByText('LA PROCHAINE ACTION',{exact:true})).toBeVisible();await expect(field).toHaveValue('Mon brouillon non enregistré');await expect(field).toHaveAttribute('data-learning-preserved','yes');
     await guide.getByRole('button',{name:'Fermer le guide',exact:true}).click();await expect(field).toHaveValue('Mon brouillon non enregistré');await expect(field).toHaveAttribute('data-learning-preserved','yes');
     expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
     after=await read(request);expect(business(after)).toEqual(business(before));
-    await page.goto('/');await page.getByRole('button',{name:'Plus tard',exact:true}).click();await expect(page.getByRole('region',{name:'Apprendre à prospecter',exact:true})).toHaveCount(0);await expect(page.getByRole('link',{name:'Apprendre',exact:true})).toBeVisible();
+    await page.goto('/');await expect(page.getByRole('link',{name:'Apprendre à prospecter',exact:true})).toHaveCount(0);await expect(page.getByRole('link',{name:'Apprendre',exact:true})).toBeVisible();
   } finally {await restore(page,{...baseline,campaignData:{...baseline.campaignData!,learningProgress:baseline.campaignData?.learningProgress||emptyLearningProgress()}});}
 });
 

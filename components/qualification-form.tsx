@@ -17,6 +17,8 @@ import type { ActionState, Company, Settings } from '@/lib/types';
 import type { AfterExchangeData, CriterionKey, DetailedObservations, ManualObservationKey, QualificationAnswers, QualificationData, TargetSnapshot } from '@/lib/qualification-types';
 import { UI_LABELS } from '@/lib/labels';
 import {useProofViewer} from './proof-viewer-context';
+import {useQualificationSaved} from './qualification-flow-context';
+import {Button} from '@/components/ui/button';
 
 type QualifiedCompany = Company & { qualification?: QualificationData };
 type QualificationProps = { company: QualifiedCompany; settings: Settings; today: string };
@@ -37,20 +39,24 @@ function Feedback({ state }: { state: ActionState }) {
   return <>{state.error && <p className="form-error" role="alert">{state.error}</p>}{state.ok && state.message && <p className="form-success" role="status"><Check size={15} aria-hidden="true"/>{state.message}</p>}</>;
 }
 
-function PayloadForm({ action, payload, children, submit, testId, candidateId }: { action: Mutation; payload: unknown; children: ReactNode; submit: string; testId: string; candidateId?: string }) {
+function PayloadForm({ action, payload, children, submit, testId, candidateId, showSubmit=true, onInvalidCriterion }: { action: Mutation; payload: unknown; children: ReactNode; submit: string; testId: string; candidateId?: string; showSubmit?:boolean; onInvalidCriterion?:(criterion:CriterionKey)=>void }) {
   const [state, dispatch, pending] = useActionState<ActionState, FormData>(action, {});
+  const qualificationSaved=useQualificationSaved();
   const ref = useRef<HTMLFormElement>(null);
+  useEffect(()=>{if(state.ok&&testId==='qualification-form')qualificationSaved?.();},[state,qualificationSaved,testId]);
   useEffect(() => {
     if (!state.fields) return;
+    const key=Object.keys(state.fields).find(name=>/^answers\.(fit|problem|trigger|references|access)\./.test(name))?.split('.')[1] as CriterionKey|undefined;
+    if(key)onInvalidCriterion?.(key);
     const invalid = ref.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
     let parent: HTMLElement | null | undefined = invalid?.parentElement;
     while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
-    requestAnimationFrame(()=>invalid?.focus());
+    requestAnimationFrame(()=>requestAnimationFrame(()=>invalid?.focus()));
   }, [state]);
   return <FormState.Provider value={state}><form ref={ref} action={dispatch} className="qualification-payload-form stack" data-testid={testId} noValidate onReset={event => event.preventDefault()}><CampaignFields/>
     <input type="hidden" name="payload" value={JSON.stringify(payload)}/>
     {candidateId && <input type="hidden" name="candidateId" value={candidateId}/>}
-    {children}<div className="qualification-save-bar"><Feedback state={state}/><button className="button primary" type="submit" disabled={pending}>{pending ? 'Enregistrement…' : submit}<Check size={15} aria-hidden="true"/></button></div>
+    {children}{(showSubmit||state.error||state.ok)&&<div className="qualification-save-bar"><Feedback state={state}/>{showSubmit&&<Button size="lg" className="min-h-11 w-fit rounded-full bg-[var(--accent)] px-5 text-[var(--dark)] hover:bg-[var(--accent-dark)]" type="submit" disabled={pending}>{pending ? 'Enregistrement…' : submit}<Check size={15} aria-hidden="true"/></Button>}{state.ok&&candidateId&&<a className="button secondary" href={'#review-decision-'+candidateId}>Continuer vers la décision</a>}</div>}
   </form></FormState.Provider>;
 }
 
@@ -93,7 +99,7 @@ function ObservationLinks({ criterion, selected, observations, onChange, onReuse
   return <details className="qual-observation-links">
     <summary><Link2 size={14} aria-hidden="true"/>Relier mes {UI_LABELS.evidence.findings.toLocaleLowerCase('fr')}{selected.length > 0 && <span className="count">{selected.length}</span>}<ChevronDown size={14} aria-hidden="true"/></summary>
     <div className="stack"><p className="field-help">Ces liens facilitent la lecture des {UI_LABELS.evidence.proofs.toLocaleLowerCase('fr')}. Vous choisissez séparément la réponse du critère ; aucun {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} n’attribue de points.</p>
-      {!available.length && <p className="field-help">Renseignez d’abord un {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} dans <a href="#observations-heading">Mes {UI_LABELS.evidence.findings.toLocaleLowerCase('fr')}</a>.</p>}
+      {!available.length && <p className="field-help">Renseignez d’abord un {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} dans <a href="#observations-heading" onClick={()=>{const dossier=document.getElementById('qualification-evidence');if(dossier instanceof HTMLDetailsElement)dossier.open=true;}}>Mes {UI_LABELS.evidence.findings.toLocaleLowerCase('fr')}</a>.</p>}
       {available.map(key => <label className="check-label qual-observation-check" key={key}><input type="checkbox" name={'qualification.' + criterion + '.observationKeys'} value={key} checked={selected.includes(key)} onChange={event => { setCopied(false); onChange(event.target.checked ? [...selected, key] : selected.filter(item => item !== key)); }}/><span>{OBSERVATION_LABELS[key]}{observations.items[key].notes && <small>{observations.items[key].notes}</small>}</span></label>)}
       {!!available.length && <button type="button" className="button secondary small-button" disabled={!selected.length} onClick={() => { onReuse(); setCopied(true); }}>Reprendre les notes sélectionnées</button>}
       {copied && <p className="field-help" role="status">Notes reprises. Vérifiez leur sens et les dates avant d’enregistrer.</p>}
@@ -115,6 +121,7 @@ export function QualificationForm({ company, settings, today, suggestedFinding, 
   const stored = company.qualification ?? emptyQualification();
   const [answers, setAnswers] = useState<QualificationAnswers>(stored.answers);
   const [activeCriterion,setActiveCriterion]=useSessionChoice(`brine:criterion:${company.campaignId||''}:${company.id}`,criterionKeys,'fit');
+  const [reviewStep,setReviewStep]=useState(false);
   const [confirmTarget, setConfirmTarget] = useState(false);
   const storedAnswersKey = JSON.stringify(stored.answers);
   const storedTargetKey = JSON.stringify(stored.targetSnapshot);
@@ -153,6 +160,8 @@ export function QualificationForm({ company, settings, today, suggestedFinding, 
   const problemPositive = answers.problem.answer === 'one' || answers.problem.answer === 'multiple_or_blocking';
   const triggerPositive = answers.trigger.answer === 'explicit' || answers.trigger.answer === 'recent_change';
   const referencesPositive = answers.references.answer === 'one' || answers.references.answer === 'multiple';
+  const activeIndex=criterionKeys.indexOf(activeCriterion);
+  const goToCriterion=(index:number)=>{setReviewStep(false);setActiveCriterion(criterionKeys[index]);requestAnimationFrame(()=>{const fieldset=document.getElementById('qualification-criterion-'+criterionKeys[index]);fieldset?.scrollIntoView({block:'start'});fieldset?.focus();});};
   function reuseNotes(key: CriterionKey) {
     const linked = answers[key].observationKeys.map(observationKey => stored.observations.items[observationKey]);
     const notes = linked.map(item => item.notes).filter(Boolean).join('\n');
@@ -166,24 +175,26 @@ export function QualificationForm({ company, settings, today, suggestedFinding, 
   }
   return <section className="panel section-panel qualification-block" aria-labelledby="qualification-heading" data-qualification-dirty={JSON.stringify(answers) !== storedAnswersKey || confirmTarget ? 'true' : 'false'}>
     <div className="section-title"><span className="section-number">01</span><div><h2 id="qualification-heading">{compact?'Qualification · 5 critères':'Mes cinq critères de qualification'}</h2><p className="muted">{JSON.stringify(answers)!==storedAnswersKey||confirmTarget?'Brouillon non enregistré':'Réponses enregistrées'} · Les points restent votre choix.</p></div></div>
-    <>{suggestedFinding&&<button type="button" className="button secondary" onClick={()=>change('problem',{description:answers.problem.description||suggestedFinding.note,proofUrl:answers.problem.proofUrl||suggestedFinding.sourceUrl,observedOn:answers.problem.observedOn||suggestedFinding.analyzedOn})}>Reprendre le {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} retenu</button>}<PayloadForm action={saveQualificationAction.bind(null, company.id)} candidateId={company.candidateId} payload={{ answers }} submit="Enregistrer la qualification" testId="qualification-form">
+    <>{suggestedFinding&&<button type="button" className="button secondary" onClick={()=>change('problem',{description:answers.problem.description||suggestedFinding.note,proofUrl:answers.problem.proofUrl||suggestedFinding.sourceUrl,observedOn:answers.problem.observedOn||suggestedFinding.analyzedOn})}>Reprendre le {UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} retenu</button>}<PayloadForm action={saveQualificationAction.bind(null, company.id)} candidateId={company.candidateId} payload={{ answers }} submit="Enregistrer la qualification" testId="qualification-form" showSubmit={!compact||reviewStep} onInvalidCriterion={key=>goToCriterion(criterionKeys.indexOf(key))}>
       <input type="hidden" name="expectedTarget" value={currentTargetKey}/>
       <details className="qualification-target-details"><summary>Rappel de la cible et de l’offre</summary><TargetReminder target={target}/></details>
       <p className="qual-known-company"><strong>Informations de la fiche</strong>{company.business || 'Activité non renseignée'} · {company.city || 'Zone non renseignée'}</p>
-      {compact&&<><label className="field compact-control-select">Critère à vérifier · 5<select value={activeCriterion} onChange={e=>setActiveCriterion(e.target.value as CriterionKey)}>{criterionKeys.map(key=><option key={key} value={key}>{QUALIFICATION_RULES.criteria[key].label}</option>)}</select></label><nav className="compact-controls qualification-control-list" aria-label="Les cinq critères de qualification">{criterionKeys.map(key=>{const item=evaluation?.criteria.find(c=>c.key===key);return <button type="button" key={key} aria-pressed={activeCriterion===key} onClick={()=>setActiveCriterion(key)}><span>{QUALIFICATION_RULES.criteria[key].label}</span><small>{item?.complete?`${item.points}/${item.maxPoints} · Renseigné`:'À vérifier'}</small></button>;})}</nav></>}
+      {compact&&<div className="qualification-wizard-progress flex flex-col gap-1 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4" aria-live="polite"><strong>{reviewStep?'Récapitulatif':`Question ${activeIndex+1} sur 5`}</strong><span>{reviewStep?'Relisez vos réponses avant de les enregistrer.':QUALIFICATION_RULES.criteria[activeCriterion].label}</span><div className="qualification-wizard-track mt-3 h-2 overflow-hidden rounded-full bg-[var(--neutral)]" aria-hidden="true"><span className="block h-full rounded-full bg-[var(--accent)]" style={{width:`${(reviewStep?5:activeIndex+1)*20}%`}}/></div></div>}
+      {compact&&reviewStep&&<section tabIndex={-1} className="qualification-wizard-review rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4" aria-label="Récapitulatif des cinq critères"><h3>Vos réponses</h3><ol className="mt-3 grid gap-2">{criterionKeys.map((key,index)=>{const item=evaluation?.criteria.find(c=>c.key===key);return <li key={key} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--line)] p-3"><span className="grid gap-1"><strong>{index+1}. {QUALIFICATION_RULES.criteria[key].label}</strong><small>{item?.answerLabel||'À vérifier'} · {item?.complete?'Renseigné':'À compléter'}</small></span><button type="button" className="button secondary small-button" onClick={()=>goToCriterion(index)}>Modifier</button></li>;})}</ol><p className="field-help mt-3">Vous pouvez enregistrer même si certains critères restent à vérifier.</p></section>}
       {criterionKeys.map((key, index) => {
         const criterion = evaluation?.criteria.find(item => item.key === key);
         const current = evaluateQualification(company, settings, today).criteria.find(item => item.key === key);
-        return <fieldset hidden={compact&&key!==activeCriterion} className="qual-question" id={'qualification-criterion-' + key} key={key} data-testid={'qualification-question-' + key}>
+        return <fieldset hidden={compact&&(reviewStep||key!==activeCriterion)} tabIndex={-1} className="qual-question" id={'qualification-criterion-' + key} key={key} data-testid={'qualification-question-' + key}>
           <legend><span className="qual-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span>{QUALIFICATION_RULES.criteria[key].label}</legend>
           <details><summary>Comment vérifier ce critère</summary><p className="field-help">{criterionHelp[key]}</p></details>
-          <div className="qualification-current-answer"><span><strong>Ma réponse enregistrée</strong>{current?.answerLabel || 'À vérifier'}</span><strong>{current?.complete ? `${current.points} / ${current.maxPoints} pts confirmés` : 'Points à confirmer'}</strong></div>
+          {compact&&<button type="button" className="button secondary small-button mt-2" onClick={()=>{const dossier=document.getElementById('qualification-evidence');if(dossier instanceof HTMLDetailsElement){dossier.open=true;dossier.scrollIntoView({block:'start'});}}}>Ouvrir le dossier et les preuves</button>}
+          {!compact&&<div className="qualification-current-answer"><span><strong>Ma réponse enregistrée</strong>{current?.answerLabel || 'À vérifier'}</span><strong>{current?.complete ? `${current.points} / ${current.maxPoints} pts confirmés` : 'Points à confirmer'}</strong></div>}
           {company.qualificationEnrichment?.revalidate?.includes(key) && <p className="qualification-revalidate"><Info size={16} aria-hidden="true"/> Nouvelle analyse : revérifiez ce critère. Votre réponse est conservée.</p>}
           {report && candidate && suggestions.filter(suggestion => suggestion.criterion === key).map(suggestion => <QualificationSuggestionPanel key={suggestion.id} suggestion={suggestion} report={report} candidateId={candidate.id} revision={company.participationRevision ?? candidate.revision} findingRevision={candidate.revision} compact={compact} currentAnswer={answers[key].answer} hasSavedResponse={JSON.stringify(stored.answers[key]) !== JSON.stringify(emptyQualification().answers[key])} dirty={JSON.stringify(answers) !== storedAnswersKey} onModify={() => {
             setAnswers(previous => ({ ...previous, [key]: { ...suggestion.response, observationKeys: previous[key].observationKeys } }));
             document.getElementById('qualification-answer-' + key)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
           }}/>) }
-          <details className="qualification-response-editor" open={!compact||!current?.complete||JSON.stringify(answers[key])!==JSON.stringify(stored.answers[key])}><summary>Modifier ma réponse et ses justifications</summary><div>
+          <details className="qualification-response-editor" open={compact||!current?.complete||JSON.stringify(answers[key])!==JSON.stringify(stored.answers[key])}><summary style={{display:compact?'none':undefined}}>Modifier ma réponse et ses justifications</summary><div>
           <div className="qualification-answer-heading" id={'qualification-answer-' + key}><strong>{JSON.stringify(answers[key]) !== JSON.stringify(stored.answers[key]) ? 'Ma réponse à enregistrer' : 'Choisir ou modifier ma réponse'}</strong><span>Maximum {QUALIFICATION_RULES.criteria[key].maxPoints} points</span></div>
           <AnswerChoices criterion={key} value={answers[key].answer} onChange={value => change(key, { answer: value } as Partial<QualificationAnswers[typeof key]>)}/>
           {key === 'fit' && <>
@@ -224,8 +235,9 @@ export function QualificationForm({ company, settings, today, suggestedFinding, 
           </div></details>
         </fieldset>;
       })}
-      <div className="qual-draft-progress" aria-live="polite"><strong>Aperçu avant enregistrement</strong>{evaluation ? `${evaluation.confirmedPoints}/100 points confirmés · ${evaluation.completedCount}/5 critères validés${evaluation.complete ? ' · Qualification complète' : ' · Qualification en cours'}` : 'Vérifiez le format des liens et des dates avant de calculer ce brouillon.'}</div>
-      <p className="field-help">Vous pouvez enregistrer sans tout compléter. Une inconnue reste à vérifier ; elle ne vaut pas zéro. Les points et la priorité sont recalculés à l’enregistrement.</p>
+      {compact&&<div className="qualification-wizard-actions flex flex-wrap justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3"><Button type="button" variant="outline" size="lg" className="min-h-11 rounded-full px-5" disabled={!reviewStep&&activeIndex===0} onClick={()=>reviewStep?goToCriterion(4):goToCriterion(activeIndex-1)}>Précédent</Button>{!reviewStep&&<Button type="button" size="lg" className="min-h-11 rounded-full bg-[var(--accent)] px-5 text-[var(--dark)] hover:bg-[var(--accent-dark)]" onClick={()=>{if(activeIndex===4){setReviewStep(true);requestAnimationFrame(()=>document.querySelector<HTMLElement>('.qualification-wizard-review')?.focus());}else goToCriterion(activeIndex+1);}}>{activeIndex===4?'Voir le récapitulatif':'Suivant'}</Button>}</div>}
+      {(!compact||reviewStep)&&<><div className="qual-draft-progress" aria-live="polite"><strong>Aperçu avant enregistrement</strong>{evaluation ? `${evaluation.confirmedPoints}/100 points confirmés · ${evaluation.completedCount}/5 critères validés${evaluation.complete ? ' · Qualification complète' : ' · Qualification en cours'}` : 'Vérifiez le format des liens et des dates avant de calculer ce brouillon.'}</div>
+      <p className="field-help">Vous pouvez enregistrer sans tout compléter. Une inconnue reste à vérifier ; elle ne vaut pas zéro. Les points et la priorité sont recalculés à l’enregistrement.</p></>}
     </PayloadForm></>
   </section>;
 }

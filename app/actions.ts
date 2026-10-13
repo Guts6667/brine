@@ -71,6 +71,16 @@ export async function saveCompanyAction(id: string, _: ActionState, data: FormDa
     return {ok:true,message:'Fiche enregistrée. La qualification a été recalculée.'};
   } catch(error) { return failure(error); }
 }
+export async function saveProspectEmailAction(id:string,_:ActionState,data:FormData):Promise<ActionState>{
+  try{
+    await authorize();
+    const store=await context(data),company=await store.getCompany(id);
+    if(!company)throw new Error('Prospect introuvable.');
+    await store.repo.saveCompanyEmail(store.campaignId,id,str(data,'email'),store.expectedRevision,str(data,'sharedUpdatedAt'));
+    refresh(id);
+    return {ok:true,message:'Email enregistré. Vérifiez le canal avant de contacter.'};
+  }catch(error){return failure(error);}
+}
 function parsePayload(data:FormData):unknown {
   const payload=str(data,'payload');
   if(payload.length>128*1024) throw new Error('Les informations dépassent la taille autorisée.');

@@ -1,13 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState, useState, type ReactNode } from 'react';
+import { useActionState, useCallback, useState, type ReactNode } from 'react';
 import { ArrowRight, Check, ExternalLink, Mail, Phone } from 'lucide-react';
 import { reviewCandidateAction } from '@/app/campaign-actions';
 import { FactVisualEvidence, ProspectReport, reportDate } from '@/components/prospect-report';
 import type { ProspectInsight, ProspectInsights } from '@/lib/prospect-insights';
 import type { ProspectReport as Report, ResearchContact } from '@/lib/research-types';
 import { UI_LABELS } from '@/lib/labels';
+import {QualificationSavedProvider} from './qualification-flow-context';
 
 const contactLabels = { email: 'Email public', phone: 'Téléphone public', formUrl: 'Formulaire', profileUrl: 'Profil professionnel' };
 
@@ -32,6 +33,7 @@ type Props = {
   visualObservation?: ReactNode;
   qualification?: ReactNode;
   decisionReturnTo?: string;
+  initialQualificationSaved?: boolean;
 };
 
 function InsightCard({ insight, report, selectedIds, eligibleIds, editable, pending, onSelect }: {
@@ -61,8 +63,11 @@ function InsightCard({ insight, report, selectedIds, eligibleIds, editable, pend
   </article>;
 }
 
-export function ProspectReview({ candidateId, revision, report, insights, contacts, selectedIds: initialIds, selectedContactIndexes, eligibleIds, initialApproach, campaignId, prepareHref, companyHref, savedContactValues, retained, archived, canReview, offerEditor, visualObservation, qualification, decisionReturnTo }: Props) {
+export function ProspectReview({ candidateId, revision, report, insights, contacts, selectedIds: initialIds, selectedContactIndexes, eligibleIds, initialApproach, campaignId, prepareHref, companyHref, savedContactValues, retained, archived, canReview, offerEditor, visualObservation, qualification, decisionReturnTo, initialQualificationSaved=false }: Props) {
   const [state, dispatch, pending] = useActionState(reviewCandidateAction, {});
+  const [savedDuringVisit,setSavedDuringVisit]=useState(false);
+  const markQualificationSaved=useCallback(()=>setSavedDuringVisit(true),[]);
+  const canDecide=!qualification||initialQualificationSaved||savedDuringVisit;
   const [unsavedError, setUnsavedError] = useState('');
   const [editing, setEditing] = useState(!retained);
   const [draftIds, setSelectedIds] = useState(initialIds);
@@ -108,7 +113,7 @@ export function ProspectReview({ candidateId, revision, report, insights, contac
   const newContacts = contacts.flatMap((contact, index) => savedContactValues?.[contact.kind] ? [] : [{ contact, index }]);
   const contactSummary = [...storedContacts.map(contact => contact.value), ...contactIndexes.filter(index => contacts[index] && !savedContactValues?.[contacts[index].kind]).map(index => contacts[index]?.value)].filter(Boolean).join(' · ');
 
-  return <div className={'prospect-review'+(qualification?' prospect-review-compact':'')} data-testid="prospect-review">
+  return <QualificationSavedProvider value={markQualificationSaved}><div className={'prospect-review'+(qualification?' prospect-review-compact':'')} data-testid="prospect-review">
     <div className="review-identity-section"><div className="review-identity-links">
       {insights.identity.website ? <a className="button secondary" href={insights.identity.website} target="_blank" rel="noopener noreferrer">Ouvrir le site <ExternalLink size={15} aria-hidden="true" /></a> : <span className="review-unknown">Site non confirmé</span>}
       {topContacts.map(contact => <div className="review-public-contact" key={contact.kind}>{contact.kind === 'email' ? <Mail size={15} aria-hidden="true" /> : <Phone size={15} aria-hidden="true" />}<span>{contact.value}</span>{contact.sourceUrl ? <a href={contact.sourceUrl} target="_blank" rel="noopener noreferrer" aria-label={`Source du ${contact.kind === 'email' ? 'courriel' : 'téléphone'} public`}>Source <ExternalLink size={12} aria-hidden="true" /></a> : <span className="review-unknown">Sur la fiche</span>}</div>)}
@@ -142,7 +147,8 @@ export function ProspectReview({ candidateId, revision, report, insights, contac
         {insights.positives.length > 0 && <details className="review-positives"><summary>Ce qui fonctionne ou est déjà présenté ({insights.positives.length})</summary><div className="details-body">{insights.positives.map(insight => <InsightCard key={insight.id} insight={insight} report={report} selectedIds={selectedIds} eligibleIds={eligibleIds} editable={editable} pending={pending} onSelect={chooseInsight} />)}</div></details>}
       </div></details>
 
-      {editable && <div className="review-choice-area" id={'review-decision-'+candidateId}>
+      {editable && !canDecide && <p className="rounded-xl border border-[var(--line)] bg-[var(--neutral)] p-4 text-sm">Répondez aux cinq questions, puis enregistrez le récapitulatif pour choisir la suite.</p>}
+      {editable && canDecide && <div className="review-choice-area" id={'review-decision-'+candidateId}>
         <div className="review-block-heading"><h3>{retained ? 'Mettre à jour mes choix' : `${UI_LABELS.steps.qualify} cette ${UI_LABELS.entities.company.toLocaleLowerCase('fr')}`}</h3><p>{selectedIds.length ? `${selectedIds.length} ${selectedIds.length>1?UI_LABELS.evidence.findings.toLocaleLowerCase('fr'):UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} choisi${selectedIds.length>1?'s':''} pour préparer l’approche.` : `Choisissez un ${UI_LABELS.evidence.finding.toLocaleLowerCase('fr')} utile, ou gardez la fiche pour approfondir. Vous pourrez compléter la préparation ensuite.`}</p></div>
         <details className="review-contact-choices" id={'review-contact-choices-'+candidateId}><summary>Coordonnées à garder <span>{contactSummary || 'Aucune sélectionnée'}</span></summary><div className="details-body">{storedContacts.length > 0 && <><p className="field-help">Ces coordonnées sont déjà enregistrées et seront conservées.</p>{storedContacts.map(contact => <p key={contact.kind}>{contactLabels[contact.kind]} : {contact.value}{contact.sourceUrl && <> · <a href={contact.sourceUrl} target="_blank" rel="noopener noreferrer">Source</a></>}</p>)}</>}{companyHref && <Link href={companyHref} className="open-link">Modifier les coordonnées sur la fiche →</Link>}{newContacts.length > 0 ? <><p className="field-help">Informations publiques à confirmer avant un contact. Un contact par type sera conservé sur la fiche.</p>{newContacts.map(({ contact, index }) => <label className="review-contact-choice" key={`${contact.kind}:${index}`}><input type="checkbox" checked={contactIndexes.includes(index)} disabled={pending} onChange={event => chooseContact(index, event.target.checked)} /><span><strong>{contactLabels[contact.kind]}</strong>{contact.value}<a href={contact.sourceUrl} target="_blank" rel="noopener noreferrer">Voir la source <ExternalLink size={12} aria-hidden="true" /></a></span></label>)}</> : !storedContacts.length && <p>Aucune coordonnée extraite. Vous pourrez en ajouter sur la fiche.</p>}</div></details>
         <details className="review-personal-note"><summary>Ajouter une note personnelle (facultatif)</summary><div className="field"><label htmlFor={'candidate-approach-' + candidateId}>Ce que je veux approfondir</label><textarea id={'candidate-approach-' + candidateId} name="approach" value={note} onChange={event => setNote(event.target.value)} maxLength={4000} disabled={pending} placeholder="Ex. Vérifier le comparateur de photos sur téléphone avant de proposer une correction." /></div></details>
@@ -156,6 +162,6 @@ export function ProspectReview({ candidateId, revision, report, insights, contac
 
     {canReview && !archived && visualObservation && <div className="review-add-observation">{visualObservation}</div>}
     {insights.unknowns.length > 0 && <details className="review-unknowns"><summary>Ce qui reste à vérifier ({insights.unknowns.length})</summary><ul>{insights.unknowns.map((text, index) => <li key={index}>{text}</li>)}</ul></details>}
-    <div className="review-complete-dossier"><ProspectReport report={report} selectionName={editable ? 'findingId' : undefined} selectedIds={selectedIds} selectableIds={eligibleIds} onSelectionChange={ids => { if (!pending) setSelectedIds(ids); }} selectionDisabled={pending} renderSelectionInputs={false} showSummary={false} printHref={'/campagnes/rapports/candidat/' + candidateId} /></div>
-  </div>;
+    <details className="review-complete-dossier rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-4"><summary className="cursor-pointer font-medium">Dossier complet et sources</summary><ProspectReport report={report} selectionName={editable ? 'findingId' : undefined} selectedIds={selectedIds} selectableIds={eligibleIds} onSelectionChange={ids => { if (!pending) setSelectedIds(ids); }} selectionDisabled={pending} renderSelectionInputs={false} showSummary={false} printHref={'/campagnes/rapports/candidat/' + candidateId} /></details>
+  </div></QualificationSavedProvider>;
 }

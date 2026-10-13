@@ -29,6 +29,7 @@ export interface DiscoveryCandidate {
   websites: WebsiteProposal[]; website: string; html: SiteAnalysis | null; mobile: SiteAnalysis | null;
   htmlError: string; mobileError: string; attempts: Record<string, number>; revision: number;
   dedupeKey?: string; research?: ResearchData;
+  manualEmail?: string;
   qualificationDraft?: QualificationData;
   qualificationEnrichment?: import('./qualification-enrichment').QualificationEnrichment;
 }

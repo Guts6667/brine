@@ -1,0 +1,37 @@
+:root {
+  color-scheme: light;
+  --bg: #f3f0e8;
+  --surface: #fffdf8;
+  --ink: #252525;
+  --dark: #171717;
+  --sidebar: #171717;
+  --cream: #f3f0e8;
+  --muted: #62655d;
+  --line: #dedcd3;
+  --accent: #b7d64f;
+  --accent-dark: #c5e264;
+  --accent-soft: #e9eecb;
+  --neutral: #f0ede6;
+  --peach: #f0ab87;
+  --peach-soft: #f8e6da;
+  --peach-ink: #694631;
+
+  --text-sm: 14px;
+  --text-base: 16px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+  --radius: var(--radius-lg);
+  --target-min: 44px;
+  --serif: Georgia, "Iowan Old Style", serif;
+}
